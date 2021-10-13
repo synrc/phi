@@ -25,7 +25,7 @@
         , replApply/1
         ]).
 
--type(mapFun() :: fun((A :: any()) -> B :: any())).
+-type mapFun() :: fun((A :: any()) -> B :: any()).
 
 -spec(applyListImpl(list(mapFun()), list(any())) -> list(any())).
 applyListImpl(Funs, L) ->

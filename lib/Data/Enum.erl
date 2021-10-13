@@ -64,7 +64,8 @@ enumFloatRange(Start, Stop) when Stop < Start ->
 enumFloatRangeStep(Start, Next, Stop) ->
   floatRange(Start, Stop, Next-Start).
 
-floatRange(_, _, 0.0) -> error("bad argument");
+floatRange(_, _, +0.0) -> error("bad argument");
+floatRange(_, _, -0.0) -> error("bad argument");
 floatRange(Start, Stop, Step) 
   when (Step > 0.0) and (Start > Stop) or (Step < 0.0) and (Start < Stop) -> [];
 floatRange(Start, Stop, Step) -> 

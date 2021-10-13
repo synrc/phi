@@ -16,7 +16,7 @@
 
 -include("Maybe.hrl").
 
--export([maybe/1]).
+-export(['maybe'/1]).
 
-maybe(undefined) -> ?Nothing;
-maybe(Val) -> ?Just(Val).
+'maybe'(undefined) -> ?Nothing;
+'maybe'(Val) -> ?Just(Val).

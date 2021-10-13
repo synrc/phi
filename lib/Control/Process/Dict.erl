@@ -24,16 +24,16 @@
         , put/2
         ]).
 
--import('Maybe', [maybe/1]).
+-import('Maybe', ['maybe'/1]).
 
 erase(Key) ->
-  ?IO(maybe(erlang:erase(Key))).
+  ?IO('maybe'(erlang:erase(Key))).
 
 eraseAll() ->
   ?IO(begin erlang:erase(), ok end).
 
 get(Key) ->
-  ?IO(maybe(erlang:get(Key))).
+  ?IO('maybe'(erlang:get(Key))).
 
 put(Key, Val) ->
-  ?IO(maybe(erlang:put(Key, Val))).
+  ?IO('maybe'(erlang:put(Key, Val))).

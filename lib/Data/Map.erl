@@ -34,7 +34,7 @@ singleton(K, V) -> #{K => V}.
 isEmpty(Map) -> maps:size(Map) == 0.
 
 %% lookup :: forall k v. k -> Map k v -> Maybe v
--spec(lookup(Key :: term(), map()) -> maybe(Value :: term())).
+-spec(lookup(Key :: term(), map()) -> 'maybe'(Value :: term())).
 lookup(Key, Map) ->
   case maps:find(Key, Map) of
     {ok, Value} -> ?Just(Value);
@@ -44,7 +44,7 @@ lookup(Key, Map) ->
 -spec(notMember(Key :: term(), map()) -> boolean()).
 notMember(Key, Map) -> not maps:is_key(Key, Map).
 
--spec(take(Key :: term(), map()) -> maybe({Value :: term(), map()})).
+-spec(take(Key :: term(), map()) -> 'maybe'({Value :: term(), map()})).
 take(Key, Map) ->
   case maps:take(Key, Map) of
     {Value, Map2} -> ?Just({Value, Map2});

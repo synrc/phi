@@ -29,7 +29,7 @@
 
 -import('Curry', [apply/2]).
 
--type(orddict(Key, Value) :: [{Key, Value}]).
+-type orddict(Key, Value) :: [{Key, Value}].
 
 %% filter :: forall a b. (a -> b -> Boolean) -> OrdDict a b -> OrdDict a b
 -spec(filter(Pred, Orddict1) -> Orddict2 when
@@ -42,7 +42,7 @@ filter(Pred, Orddict1) ->
                  end, Orddict1).
 
 %% find :: forall a b. a -> OrdDict a b -> Maybe b -- {Ok, b} | Error
--spec(find(Key, Orddict) -> maybe(Value) when
+-spec(find(Key, Orddict) -> 'maybe'(Value) when
       Orddict :: orddict(Key, Value)).
 find(Key, Orddict) ->
   case orddict:find(Key, Orddict) of
@@ -64,7 +64,7 @@ fold(Fun, Acc0, Orddict) ->
                end, Acc0, Orddict).
 
 %% take :: forall a b. a -> OrdDict a b -> Maybe b (OriDict a b)
--spec(take(Key, Orddict) -> maybe({Value, Orddict1 }) when
+-spec(take(Key, Orddict) -> 'maybe'({Value, Orddict1 }) when
       Orddict :: orddict(Key, Value),
       Orddict1 :: orddict(Key, Value),
       Key :: term(),

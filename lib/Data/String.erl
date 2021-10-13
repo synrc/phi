@@ -48,10 +48,10 @@
 
 -define(LineFeed, "\x{000A}\x{000D}\x{2028}\x{2029}").
 
--type(prefix() :: string()).
--type(suffix() :: string()).
--type(pattern() :: string()).
--type(replacement() :: string()).
+-type prefix() :: string().
+-type suffix() :: string().
+-type pattern() :: string().
+-type replacement() :: string().
 
 -spec(concat(string(), string()) -> string()).
 concat(S1, S2) -> string:concat(S1, S2).
@@ -87,11 +87,11 @@ indexOf(Char, String) -> string:chr(String, Char).
 -spec(lastIndexOf(char(), string()) -> integer()).
 lastIndexOf(Char, String) -> string:rchr(String, Char).
 
--spec(find(string(), pattern()) -> maybe(string())).
+-spec(find(string(), pattern()) -> 'maybe'(string())).
 find(String, Pattern) ->
   doFind(String, Pattern, leading).
 
--spec(findLast(string(), pattern()) -> maybe(string())).
+-spec(findLast(string(), pattern()) -> 'maybe'(string())).
 findLast(String, Pattern) ->
   doFind(String, Pattern, trailing).
 

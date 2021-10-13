@@ -35,7 +35,7 @@
         , yield/0
         ]).
 
--import('Maybe', [maybe/1]).
+-import('Maybe', ['maybe'/1]).
 
 send(Pid, Msg) ->
   ?IO(ok(erlang:send(Pid, Msg))).
@@ -62,7 +62,7 @@ unregister(Name) ->
   ?IO(ok(erlang:unregister(Name))).
 
 whereis(Name) ->
-  ?IO(maybe(erlang:whereis(Name))).
+  ?IO('maybe'(erlang:whereis(Name))).
 
 setGroupLeader(LeaderPid, Pid) ->
   ?IO(ok(erlang:group_leader(LeaderPid, Pid))).

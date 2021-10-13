@@ -39,7 +39,7 @@
         , ensure_started/2
         ]).
 
--import('Maybe', [maybe/1]).
+-import('Maybe', ['maybe'/1]).
 
 ensureAllStarted(Application) ->
   ?IO(return(ensure_all_started(Application))).
@@ -54,10 +54,10 @@ ensureRestarted(Application, Type) ->
   ?IO(return(ensure_started(Application, translate(Type)))).
 
 getApplication() ->
-  ?IO(maybe(application:get_application())).
+  ?IO('maybe'(application:get_application())).
 
 getApplicationOfPid(Pid) ->
-  ?IO(maybe(application:get_application(Pid))).
+  ?IO('maybe'(application:get_application(Pid))).
 
 load(Application) ->
   ?IO(return(application:load(Application))).

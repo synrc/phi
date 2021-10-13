@@ -3,4 +3,4 @@
 
 -define(Just(A), {'Just', A}).
 
--type(maybe(A) :: {'Nothing'} | {'Just', A}).
+-type 'maybe'(A) :: {'Nothing'} | {'Just', A}.

@@ -16,7 +16,7 @@
 
 -export([mapListImpl/2]).
 
--type(mapFun() :: fun((A :: any()) -> B :: any())).
+-type mapFun() :: fun((A :: any()) -> B :: any()).
 
 -spec(mapListImpl(mapFun(), list(any())) -> list(any())).
 mapListImpl(F, L) -> lists:map(F, L).

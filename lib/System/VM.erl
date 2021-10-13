@@ -22,7 +22,7 @@
         ]).
 
 -import(erlang, [system_info/1]).
--import('Maybe', [maybe/1]).
+-import('Maybe', ['maybe'/1]).
 
 memory() ->
   ?IO(maps:from_list(erlang:memory())).
@@ -34,7 +34,7 @@ memory() ->
 info(allocated_areas) ->
   ?IO(maps:from_list(fixAtomSpace(system_info(allocated_areas))));
 info(cpu_topology) ->
-  ?IO(maybe(system_info(cpu_topology)));
+  ?IO('maybe'(system_info(cpu_topology)));
 info(logical_processors) ->
   ?IO(fixUnknown(system_info(logical_processors)));
 info(fullsweep_after) ->
@@ -50,7 +50,7 @@ info(scheduler_bindings) ->
 info(delayed_node_table_gc) ->
   ?IO(timeout(system_info(delayed_node_table_gc)));
 info(modified_timing_level) ->
-  ?IO(maybe(system_info(modified_timing_level)));
+  ?IO('maybe'(system_info(modified_timing_level)));
 info(wordsize_intenal) ->
   ?IO(system_info({wordsize, intenal}));
 info(wordsize_external) ->
@@ -83,9 +83,9 @@ stats(microstate_accounting) ->
           ?Just([msaccThread(Stat) || Stat <- Stats])
       end);
 stats(scheduler_wall_time) ->
-  ?IO(maybe(statistics(scheduler_wall_time)));
+  ?IO('maybe'(statistics(scheduler_wall_time)));
 stats(scheduler_wall_time_all) ->
-  ?IO(maybe(statistics(scheduler_wall_time_all)));
+  ?IO('maybe'(statistics(scheduler_wall_time_all)));
 stats(Item) -> ?IO(statistics(Item)).
 
 %%---------------------------------------------------------------------------

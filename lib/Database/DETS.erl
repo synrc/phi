@@ -45,7 +45,7 @@
         , sync/1
         ]).
 
--import('Maybe', [maybe/1]).
+-import('Maybe', ['maybe'/1]).
 
 delete(Name, Key) ->
   ?IO(return(dets:delete(Name, Key))).
@@ -148,7 +148,7 @@ openFile(Name, Args) ->
    ?IO(return(dets:open_file(Name, parseOpts(Args, [])))).
 
 pid2Name(Pid) ->
-  ?IO(maybe(dets:pid2name(Pid))).
+  ?IO('maybe'(dets:pid2name(Pid))).
 
 slot(Name, I) ->
   ?IO(case dets:slot(Name, I) of

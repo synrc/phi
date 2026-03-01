@@ -751,9 +751,10 @@ defmodule Phi.Parser do
     parse_expr_atom_tail(%AST.ExprApp{func: %AST.ExprVar{name: "access_#{field}"}, arg: expr}, rest)
   end
   defp parse_expr_atom_tail(expr, [{:left_brace, _, _} | rest]) do
-    # Record update: expr { field = val }
+    # Record update: expr { field = val, ... }
     case parse_record_expr(rest) do
-      {:ok, _update, rest2} -> {:ok, expr, rest2}
+      {:ok, %AST.ExprRecord{fields: fields}, rest2} ->
+        parse_expr_atom_tail(%AST.ExprRecordUpdate{base: expr, fields: fields}, rest2)
       err -> err
     end
   end
@@ -831,18 +832,18 @@ defmodule Phi.Parser do
 
   defp parse_record_expr(tokens) do
     case parse_comma_separated(tokens, &parse_record_field_expr/1) do
-      {:ok, _fields, [{:right_brace, _, _} | rest]} -> {:ok, %AST.ExprVar{name: "record_literal"}, rest}
+      {:ok, fields, [{:right_brace, _, _} | rest]} -> {:ok, %AST.ExprRecord{fields: fields}, rest}
       err -> err
     end
   end
-  defp parse_record_field_expr([{:var_ident, _, _, _name}, {:=, _, _} | rest]) do
+  defp parse_record_field_expr([{:var_ident, _, _, name}, {:=, _, _} | rest]) do
     case parse_expr(rest) do
-      {:ok, expr, rest2} -> {:ok, expr, rest2}
+      {:ok, expr, rest2} -> {:ok, {name, expr}, rest2}
       err -> err
     end
   end
   defp parse_record_field_expr([{:var_ident, _, _, name} | rest]) do
-    {:ok, %AST.ExprVar{name: name}, rest}
+    {:ok, {name, %AST.ExprVar{name: name}}, rest}
   end
   defp parse_record_field_expr(_), do: {:error, :invalid_record_field}
 

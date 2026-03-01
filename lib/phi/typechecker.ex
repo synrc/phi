@@ -129,7 +129,8 @@ defmodule Phi.Typechecker do
           types: itypes,
           dict_name: dict_name,
           members: members, # [%AST.DeclValue{name: "eq", expr: ...}]
-          constraints: iconstraints
+          constraints: iconstraints,
+          mod: erl_mod
         }
 
         new_instances = Map.update(acc.instances, class_name, [instance_info], fn existing ->
@@ -138,8 +139,7 @@ defmodule Phi.Typechecker do
 
         %{acc | instances: new_instances}
 
-      %AST.DeclFixity{op: op, name: name} = df, acc ->
-        IO.inspect(df, label: "Processing DeclFixity")
+      %AST.DeclFixity{op: op, name: name} = _df, acc ->
         if name do
           %{acc | term_aliases: Map.put(acc.term_aliases, op, name)}
         else

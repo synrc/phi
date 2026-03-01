@@ -134,4 +134,12 @@ defmodule Phi.AST do
   defmodule TypeRecord do
     defstruct [:fields]  # fields is a list of field name strings
   end
+
+  defmodule ExprRecord do
+    defstruct [:fields]  # fields is [{name_string, expr}, ...]
+  end
+
+  defmodule ExprRecordUpdate do
+    defstruct [:base, :fields]  # base is an expression, fields is [{name_string, expr}, ...]
+  end
 end

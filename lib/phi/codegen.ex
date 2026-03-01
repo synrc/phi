@@ -74,17 +74,24 @@ defmodule Phi.Codegen do
       f_atom = String.to_atom(c_name)
       case c_args do
         [%AST.TypeRecord{fields: fields}] ->
-          # Record constructor takes 1 arg (the map), accessor functions use maps:get
+          # Record constructor takes 1 arg (the map), accessor functions use maps:get.
+          # Generated accessor handles both {Ctor, Map} tuples and plain maps so that
+          # pattern-matched inner records (which are plain maps) work correctly.
           constructor_fn = {:function, 1, f_atom, 1, [{:clause, 1, [{:var, 1, :X1}], [], [{:tuple, 1, [{:atom, 1, f_atom}, {:var, 1, :X1}]}]}]}
           accessor_fns = Enum.map(fields, fn field_name ->
             acc_atom = String.to_atom("access_#{field_name}")
             arg_var = {:var, 1, :R}
-            # access_field(R) -> maps:get(field, element(2, R))
+            field_atom = {:atom, 1, String.to_atom(field_name)}
+            is_tuple_guard = {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :is_tuple}}, [arg_var]}
+            is_map_guard  = {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :is_map}},  [arg_var]}
             inner_map = {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :element}},
                          [{:integer, 1, 2}, arg_var]}
-            body = {:call, 1, {:remote, 1, {:atom, 1, :maps}, {:atom, 1, :get}},
-                    [{:atom, 1, String.to_atom(field_name)}, inner_map]}
-            {:function, 1, acc_atom, 1, [{:clause, 1, [arg_var], [], [body]}]}
+            body_tuple = {:call, 1, {:remote, 1, {:atom, 1, :maps}, {:atom, 1, :get}}, [field_atom, inner_map]}
+            body_map   = {:call, 1, {:remote, 1, {:atom, 1, :maps}, {:atom, 1, :get}}, [field_atom, arg_var]}
+            {:function, 1, acc_atom, 1, [
+              {:clause, 1, [arg_var], [[is_tuple_guard]], [body_tuple]},
+              {:clause, 1, [arg_var], [[is_map_guard]],  [body_map]}
+            ]}
           end)
           [constructor_fn | accessor_fns]
         _ ->
@@ -185,6 +192,25 @@ defmodule Phi.Codegen do
   end
 
   defp generate_expr(expr, local_env, global_env, current_mod, name \\ nil, fix_env \\ %{})
+
+  defp generate_expr(%AST.ExprRecord{fields: fields}, local_env, global_env, current_mod, name, fix_env) do
+    erl_fields = Enum.map(fields, fn {field_name, val_expr} ->
+      {:map_field_assoc, 1, {:atom, 1, String.to_atom(field_name)},
+       generate_expr(val_expr, local_env, global_env, current_mod, name, fix_env)}
+    end)
+    {:map, 1, erl_fields}
+  end
+
+  defp generate_expr(%AST.ExprRecordUpdate{base: base, fields: fields}, local_env, global_env, current_mod, name, fix_env) do
+    erl_base = generate_expr(base, local_env, global_env, current_mod, name, fix_env)
+    erl_update_fields = Enum.map(fields, fn {field_name, val_expr} ->
+      {:map_field_assoc, 1, {:atom, 1, String.to_atom(field_name)},
+       generate_expr(val_expr, local_env, global_env, current_mod, name, fix_env)}
+    end)
+    erl_update_map = {:map, 1, erl_update_fields}
+    {:call, 1, {:remote, 1, {:atom, 1, :maps}, {:atom, 1, :merge}}, [erl_base, erl_update_map]}
+  end
+
   defp generate_expr(%AST.ExprVar{name: "num_" <> ns}, _, _, _, _, _), do: {:integer, 1, String.to_integer(ns)}
   defp generate_expr(%AST.ExprVar{name: "float_" <> fs}, _, _, _, _, _), do: {:float, 1, String.to_float(fs)}
   defp generate_expr(%AST.ExprVar{name: "str_" <> s}, _, _, _, _, _), do: {:string, 1, String.to_charlist(s)}
@@ -284,17 +310,17 @@ defmodule Phi.Codegen do
                class_name = global_env.member_to_class[real_name]
                dict_arg_name = find_dictionary(class_name, local_env)
                if class_name do
-                 accessor_call = if dict_arg_name do
+                 if dict_arg_name do
                     dict_expr = {:var, 1, String.to_atom(dict_arg_name)}
-                    if mod && mod != current_mod do
+                    accessor_call = if mod && mod != current_mod do
                       {:call, 1, {:remote, 1, {:atom, 1, mod}, {:atom, 1, String.to_atom(real_name)}}, [dict_expr]}
                     else
                       {:call, 1, {:atom, 1, String.to_atom(real_name)}, [dict_expr]}
                     end
+                    Enum.reduce(erl_args, accessor_call, fn arg, acc -> {:call, 1, acc, [arg]} end)
                  else
-                    generate_static_call(real_name, mod, 1, [], current_mod)
+                    generate_dispatch_call(real_name, mod, erl_args, class_name, global_env, current_mod)
                  end
-                 Enum.reduce(erl_args, accessor_call, fn arg, acc -> {:call, 1, acc, [arg]} end)
                else
                  final_args = if dict_arg_name, do: [{:var, 1, String.to_atom(dict_arg_name)} | erl_args], else: erl_args
                  generate_static_call(real_name, mod, total_arity, final_args, current_mod)
@@ -430,6 +456,74 @@ defmodule Phi.Codegen do
   defp find_dictionary(class_name, env) do
     prefix = if class_name, do: "Dict_#{class_name}_", else: "Dict_"
     Enum.find(env, &String.starts_with?(&1, prefix))
+  end
+
+  defp type_outer_name(%Phi.Type.TApp{func: f}), do: type_outer_name(f)
+  defp type_outer_name(%Phi.Type.TCon{name: n}), do: n
+  defp type_outer_name(_), do: nil
+
+  defp erlang_type_guard(type, arg_var) do
+    case type_outer_name(type) do
+      "IO" ->
+        {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :is_function}}, [arg_var, {:integer, 1, 0}]}
+      "List" ->
+        {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :is_list}}, [arg_var]}
+      nil -> nil
+      ctor_name ->
+        {:op, 1, :"andalso",
+          {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :is_tuple}}, [arg_var]},
+          {:op, 1, :"=:=",
+            {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :element}}, [{:integer, 1, 1}, arg_var]},
+            {:atom, 1, String.to_atom(ctor_name)}}}
+    end
+  end
+
+  defp generate_dispatch_call(real_name, mod, erl_args, class_name, global_env, current_mod) do
+    instances = Map.get(global_env.instances, class_name, [])
+    dispatch_var = :"DDispatch__"
+    n = length(erl_args)
+
+    # Try each arg position (0 first, then 1, ...) — first position with matching instances wins.
+    # Monad bind(m, k): position 0 (m :: IO a = fun/0) matches before position 1 (k = fun/1).
+    # Functor map(f, a): position 0 (f = fun/1) has no guard; position 1 (a :: IO a) matches.
+    result = if n > 0 do
+      Enum.find_value(0..(n - 1), fn dispatch_idx ->
+        dispatch_target = Enum.at(erl_args, dispatch_idx)
+        args_with_var = List.replace_at(erl_args, dispatch_idx, {:var, 1, dispatch_var})
+
+        clauses = Enum.flat_map(instances, fn
+          %{types: [type | _], dict_name: dn, mod: dict_mod} when is_atom(dict_mod) and not is_nil(dict_mod) ->
+            guard = erlang_type_guard(type, {:var, 1, dispatch_var})
+            if guard do
+              dict_call = {:call, 1, {:remote, 1, {:atom, 1, dict_mod}, {:atom, 1, String.to_atom(dn)}}, []}
+              accessor = if mod && mod != current_mod do
+                {:call, 1, {:remote, 1, {:atom, 1, mod}, {:atom, 1, String.to_atom(real_name)}}, [dict_call]}
+              else
+                {:call, 1, {:atom, 1, String.to_atom(real_name)}, [dict_call]}
+              end
+              applied = Enum.reduce(args_with_var, accessor, fn arg, acc -> {:call, 1, acc, [arg]} end)
+              [{:clause, 1, [{:var, 1, dispatch_var}], [[guard]], [applied]}]
+            else
+              []
+            end
+          _ -> []
+        end)
+
+        if clauses != [] do
+          error_clause = {:clause, 1, [{:var, 1, dispatch_var}], [],
+            [{:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :error}},
+              [{:tuple, 1, [{:atom, 1, :no_instance}, {:atom, 1, String.to_atom(class_name)}]}]}]}
+          {:case, 1, dispatch_target, clauses ++ [error_clause]}
+        else
+          nil
+        end
+      end)
+    end
+
+    result || (
+      accessor_call = generate_static_call(real_name, mod, 1, [], current_mod)
+      Enum.reduce(erl_args, accessor_call, fn arg, acc -> {:call, 1, acc, [arg]} end)
+    )
   end
 
   defp generate_static_call(name, mod, arity, args, current_mod) do

@@ -213,7 +213,10 @@ defmodule Phi.Typechecker do
 
   defp do_infer(env, state, %AST.ExprVar{name: name}) do
     case Env.lookup(env, name) do
-      {:ok, scheme} ->
+      {:ok, {_mod, scheme}} ->
+        {type, state2} = instantiate(scheme, state)
+        {:ok, type, state2}
+      {:ok, scheme} when is_struct(scheme) ->
         {type, state2} = instantiate(scheme, state)
         {:ok, type, state2}
       :error ->
@@ -323,7 +326,13 @@ defmodule Phi.Typechecker do
   end
   defp infer_binder(env, state, %AST.BinderConstructor{name: name, args: args}) do
     # 1. Lookup the constructor's type
-    case Env.lookup(env, name) do
+    lookup_result = case Env.lookup(env, name) do
+      {:ok, {_mod, scheme}} -> {:ok, scheme}
+      {:ok, scheme} when is_struct(scheme) -> {:ok, scheme}
+      :error -> :error
+    end
+
+    case lookup_result do
       {:ok, scheme} ->
         {t_con, state2} = instantiate(scheme, state)
 

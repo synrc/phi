@@ -22,13 +22,10 @@ defmodule PhiStdlibTest do
     {:ok, tokens} = Phi.Lexer.lex(source)
     resolved = Phi.Layout.resolve(tokens)
 
-    # We expect parsing to fail initially as we don't support `forall`, parens in patterns, etc. yet!
-    # But this is the TDD target.
     {:ok, ast} = Phi.Parser.parse(resolved)
     desugared_ast = Phi.Desugar.desugar(ast)
 
     # Let's verify the desugar step worked
-    # snd should have no binders, and its expr should be a Lambda looking for Tuple
     snd_decl = Enum.find(desugared_ast.declarations, fn decl ->
       decl.__struct__ == Phi.AST.DeclValue and decl.name == "snd"
     end)
@@ -36,14 +33,14 @@ defmodule PhiStdlibTest do
     assert %Phi.AST.ExprLam{binder: %Phi.AST.BinderConstructor{name: "Tuple"}} = snd_decl.expr
 
     # Check typechecker builds Env properly
-    env = Phi.Typechecker.build_env(desugared_ast.declarations)
+    env = Phi.Typechecker.build_env(desugared_ast, Phi.Typechecker.Env.new())
 
     assert {:ok, _} = Phi.Typechecker.infer(env, snd_decl.expr)
-    {:ok, forms} = Phi.Codegen.generate(desugared_ast)
+    {:ok, forms} = Phi.Codegen.generate(desugared_ast, env)
 
     # Compile to BEAM binary and load it into VM!
     assert {:ok, mod, bin} = :compile.forms(forms, [:return_errors])
-    assert mod == :"data.tuple"
+    assert mod == :data_tuple
     assert :code.load_binary(mod, ~c"#{mod}", bin) == {:module, mod}
 
     # Try calling the compiled fst and snd!

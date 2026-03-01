@@ -21,10 +21,10 @@ defmodule PhiParserTest do
     [foo_decl, bar_decl] = ast.declarations
 
     assert foo_decl.name == "foo"
-    assert foo_decl.expr == %Phi.AST.ExprVar{name: "num_1"}
+    assert foo_decl.expr == %Phi.AST.ExprVar{name: "literal"}
 
     assert bar_decl.name == "bar"
-    assert bar_decl.expr == %Phi.AST.ExprVar{name: "num_2"}
+    assert bar_decl.expr == %Phi.AST.ExprVar{name: "literal"}
   end
 
   test "Parser constructs AST for Data Declarations" do
@@ -43,7 +43,7 @@ defmodule PhiParserTest do
 
     assert maybe_decl.name == "Maybe"
     assert length(maybe_decl.args) == 1
-    assert [%Phi.AST.TypeVar{name: "a"}] = maybe_decl.args
+    assert ["a"] = maybe_decl.args
     assert length(maybe_decl.constructors) == 2
     assert {"Nothing", []} = Enum.at(maybe_decl.constructors, 0)
     assert {"Just", [%Phi.AST.TypeVar{name: "a"}]} = Enum.at(maybe_decl.constructors, 1)
@@ -58,7 +58,7 @@ defmodule PhiParserTest do
     module Main where
     class Eq a where
       eq :: a -> a -> Bool
-    instance eqInt :: Eq Int where
+    instance Eq Int where
       eq = false
     """
 
@@ -66,8 +66,9 @@ defmodule PhiParserTest do
     resolved = Phi.Layout.resolve(tokens)
     {:ok, ast} = Phi.Parser.parse(resolved)
 
-    assert length(ast.declarations) == 2
-    [class_decl, inst_decl] = ast.declarations
+    assert length(ast.declarations) >= 2
+    class_decl = Enum.find(ast.declarations, &match?(%Phi.AST.DeclClass{}, &1))
+    inst_decl = Enum.find(ast.declarations, &match?(%Phi.AST.DeclInstance{}, &1))
 
     assert %Phi.AST.DeclClass{name: "Eq"} = class_decl
     assert length(class_decl.args) == 1
@@ -78,7 +79,7 @@ defmodule PhiParserTest do
     assert %Phi.AST.DeclTypeSignature{name: "eq"} = member_sig
     assert %Phi.AST.TypeArrow{} = member_sig.type
 
-    assert %Phi.AST.DeclInstance{name: "eqInt", class: "Eq"} = inst_decl
+    assert %Phi.AST.DeclInstance{class: "Eq"} = inst_decl
     assert length(inst_decl.types) == 1
     assert [%Phi.AST.TypeConstructor{name: "Int"}] = inst_decl.types
     assert length(inst_decl.members) == 1

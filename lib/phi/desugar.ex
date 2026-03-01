@@ -108,6 +108,13 @@ defmodule Phi.Desugar do
     %{ec | exprs: Enum.map(exprs, &desugar_expr/1),
            branches: Enum.map(branches, fn {pat, body} -> {pat, desugar_expr(body)} end)}
   end
+  defp desugar_expr(%AST.ExprRecord{fields: fields}) do
+    %AST.ExprRecord{fields: Enum.map(fields, fn {n, e} -> {n, desugar_expr(e)} end)}
+  end
+  defp desugar_expr(%AST.ExprRecordUpdate{base: base, fields: fields}) do
+    %AST.ExprRecordUpdate{base: desugar_expr(base),
+                          fields: Enum.map(fields, fn {n, e} -> {n, desugar_expr(e)} end)}
+  end
   defp desugar_expr(other), do: other
 
   defp desugar_do([]), do: %AST.ExprVar{name: "unit"}

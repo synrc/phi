@@ -37,3 +37,5 @@ erl_crash.dump
 Mnesia.nonode@nohost
 _build
 *.core
+deps
+*.log

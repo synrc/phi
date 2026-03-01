@@ -45,6 +45,7 @@ defmodule Mix.Tasks.Phi.Test do
     # Each element of `failing`: {file_path, last_reason}
     {failing, new_env, successes} =
       Enum.reduce(files, {[], env, 0}, fn file, {rem, acc_env, ok} ->
+        IO.puts("    Compiling #{file}...")
         source = File.read!(file)
 
         result =

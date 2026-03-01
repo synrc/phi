@@ -37,13 +37,17 @@ defmodule Phi.Layout do
               do_resolve(tokens, [{:right_brace, line, col} | acc], ctx_rest, depth)
             end
 
-          # 3. 'in' keyword closes layout blocks until it closes a 'let'
+          # 3. 'in' keyword closes layout blocks >= its own column or if it's a let block
           elem(token, 0) == :in ->
-             if has_let_in_ctx?(ctx, depth) do
-                do_resolve(tokens, [{:right_brace, line, col} | acc], ctx_rest, depth)
-             else
-                do_resolve_token(tokens, acc, ctx, depth)
-             end
+            if layout_type == :let do
+               do_resolve(tokens, [{:right_brace, line, col} | acc], ctx_rest, depth)
+            else
+               if layout_col >= col and layout_depth >= depth do
+                 do_resolve(tokens, [{:right_brace, line, col} | acc], ctx_rest, depth)
+               else
+                 do_resolve_token(tokens, acc, ctx, depth)
+               end
+            end
 
           # 4. Semicolon injection
           col == layout_col and depth == layout_depth ->

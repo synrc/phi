@@ -712,6 +712,12 @@ defmodule Phi.Parser do
   defp parse_expr_atom_base([{:unit, _, _} | rest]), do: {:ok, %AST.ExprVar{name: "unit"}, rest}
   defp parse_expr_atom_base([{:backslash, _, _} | _] = tokens), do: parse_expr(tokens)
   defp parse_expr_atom_base([{:left_brace, _, _} | rest]), do: parse_record_expr(rest)
+  defp parse_expr_atom_base([{:operator, _, _, "-"} | rest]) do
+    case parse_expr_atom_base(rest) do
+       {:ok, expr, rest2} -> {:ok, %AST.ExprApp{func: %AST.ExprVar{name: "-"}, arg: expr}, rest2}
+       err -> err
+    end
+  end
   defp parse_expr_atom_base(_), do: {:error, :invalid_expression_atom}
 
   defp parse_expr_atom_tail(_expr, [{:dot, _line, _col}, {:var_ident, _, _, field} | rest]) do

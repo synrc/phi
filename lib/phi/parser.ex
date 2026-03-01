@@ -50,7 +50,8 @@ defmodule Phi.Parser do
 
   defp parse_body(name, tokens) do
     case parse_decls(tokens, []) do
-      {:ok, decls, rest} -> {:ok, %AST.Module{name: name, declarations: Enum.reverse(decls)}, rest}
+      {:ok, decls, rest} ->
+        {:ok, %AST.Module{name: name, declarations: decls}, rest}
       err -> err
     end
   end
@@ -58,35 +59,42 @@ defmodule Phi.Parser do
   defp parse_module_name([{:proper_name, _, _, name} | rest], acc) do
     new_acc = if acc == "", do: name, else: acc <> "." <> name
     case rest do
-      [{:dot, _, _} | rest2] -> parse_module_name(rest2, new_acc)
+      [{:dot, _, _}, {:proper_name, _, _, _} | _] ->
+        [{:dot, _, _} | rest2] = rest
+        parse_module_name(rest2, new_acc)
       _ -> {:ok, new_acc, rest}
     end
   end
   defp parse_module_name(_, _), do: :error
 
   defp parse_decls([{:right_brace, _, _} | rest], acc) do
-    # Skip redundant braces
-    case rest do
-      [{:right_brace, _, _} | _] -> parse_decls(rest, acc)
-      _ -> {:ok, acc, rest}
-    end
+    IO.puts("parse_decls BASE_BRACE: rest=#{inspect(Enum.take(rest, 2))} acc_len=#{length(acc)}")
+    {:ok, Enum.reverse(acc), rest}
   end
   defp parse_decls(tokens, acc) do
     case parse_decl(tokens) do
       {:ok, decl, rest} ->
+        # IO.puts("parse_decls MATCHED: id=#{trace_id} struct=#{decl.__struct__} rest=#{inspect(Enum.take(rest, 2))} acc_len=#{length(acc)}")
         case rest do
-          [{:semicolon, _, _} | rest2] -> parse_decls(rest2, [decl | acc])
-          [{:else_kw, _, _} | _] -> parse_decls(rest, [decl | acc])
-          [{:right_brace, _, _} | _] -> parse_decls(rest, [decl | acc])
-          [{tok, _, _} | _] when tok in [:right_paren, :right_square, :in] -> {:ok, Enum.reverse([decl | acc]), rest}
-          [] -> {:ok, Enum.reverse([decl | acc]), []}
-          _ -> {:error, :expected_semicolon_or_brace, rest}
+          [{:semicolon, _, _} | rest2] ->
+            parse_decls(rest2, [decl | acc])
+          [{:else_kw, _, _} | _] ->
+            parse_decls(rest, [decl | acc])
+          [{:right_brace, _, _} | rest2] ->
+            {:ok, Enum.reverse([decl | acc]), rest2}
+          [{tok, _, _} | _] when tok in [:right_paren, :right_square, :in] ->
+            {:ok, Enum.reverse([decl | acc]), rest}
+          [] ->
+            {:ok, Enum.reverse([decl | acc]), []}
+          _ ->
+            parse_decls(rest, [decl | acc])
         end
       err -> err
     end
   end
 
   # --- Declaration Rules ---
+  defp parse_decl([{:semicolon, _, _} | rest]), do: parse_decl(rest)
 
   defp parse_decl([{:import, _, _} | rest]) do
     case parse_module_name(rest, "") do
@@ -256,8 +264,9 @@ defmodule Phi.Parser do
                 case rest3 do
                    [{:where, _, _}, {:left_brace, _, _} | rest4] ->
                       case parse_decls(rest4, []) do
-                         {:ok, _local_decls, rest5} ->
-                            {:ok, %AST.DeclValue{name: name, binders: binders, expr: expr}, rest5}
+                         {:ok, local_decls, rest5} ->
+                            expr_with_where = %AST.ExprLet{bindings: local_decls, body: expr}
+                            {:ok, %AST.DeclValue{name: name, binders: binders, expr: expr_with_where}, rest5}
                          err -> err
                       end
                    _ -> {:ok, %AST.DeclValue{name: name, binders: binders, expr: expr}, rest3}
@@ -270,7 +279,12 @@ defmodule Phi.Parser do
                  case rest2 do
                     [{:where, _, _}, {:left_brace, _, _} | rest3] ->
                        case parse_decls(rest3, []) do
-                          {:ok, _local, rest4} -> {:ok, %AST.DeclValue{name: name, binders: binders, guards: guards}, rest4}
+                          {:ok, local_decls, rest4} ->
+                             # Wrap each guard body in the let block
+                             guards_with_where = Enum.map(guards, fn {g, b} ->
+                               {g, %AST.ExprLet{bindings: local_decls, body: b}}
+                             end)
+                             {:ok, %AST.DeclValue{name: name, binders: binders, guards: guards_with_where}, rest4}
                           err -> err
                        end
                     _ -> {:ok, %AST.DeclValue{name: name, binders: binders, guards: guards}, rest2}
@@ -302,6 +316,7 @@ defmodule Phi.Parser do
   defp parse_instance_with_where(tokens) do
     case parse_type(tokens) do
       {:ok, type, rest} ->
+        IO.inspect(Enum.take(rest, 5), label: "Tokens after instance type")
         {ctx, t} = case type do
           %AST.TypeConstrained{constraints: c, type: inner} -> {c, inner}
           _ -> {[], type}
@@ -312,7 +327,7 @@ defmodule Phi.Parser do
               [{:where, _, _}, {:left_brace, _, _} | rest2] ->
                 case parse_decls(rest2, []) do
                   {:ok, members, rest3} ->
-                    {:ok, %AST.DeclInstance{name: "anon", class: class_name, types: types, members: Enum.reverse(members), constraints: ctx}, rest3}
+                    {:ok, %AST.DeclInstance{name: "anon", class: class_name, types: types, members: members, constraints: ctx}, rest3}
                   err -> err
                 end
               _ -> {:ok, %AST.DeclInstance{name: "anon", class: class_name, types: types, members: [], constraints: ctx}, rest}
@@ -457,7 +472,9 @@ defmodule Phi.Parser do
   defp parse_type_atom([{:number, _, _, _Val} | rest]), do: {:ok, %AST.TypeConstructor{name: "Number"}, rest}
   defp parse_type_atom([{:left_brace, _, _} | rest]) do
     case parse_comma_separated(rest, &parse_record_field_type/1) do
-      {:ok, _fields, [{:right_brace, _, _} | rest2]} -> {:ok, %AST.TypeConstructor{name: "Record"}, rest2}
+      {:ok, fields, [{:right_brace, _, _} | rest2]} ->
+        field_names = Enum.map(fields, fn {name, _type} -> name end)
+        {:ok, %AST.TypeRecord{fields: field_names}, rest2}
       err -> err
     end
   end
@@ -566,7 +583,7 @@ defmodule Phi.Parser do
         end
       [{:do, _, _}, {:left_brace, _, _} | rest] ->
         case parse_do_statements(rest, []) do
-          {:ok, stats, rest2} -> {:ok, {:do, stats}, rest2}
+          {:ok, stats, rest2} -> {:ok, %AST.ExprDo{statements: stats}, rest2}
           err -> err
         end
       _ ->
@@ -638,7 +655,8 @@ defmodule Phi.Parser do
   end
 
   defp parse_expr_app_tail(func_expr, [{tok, _, _} | _] = tokens)
-       when tok in [:right_brace, :right_paren, :right_square, :in, :else_kw, :then_kw, :of, :comma, :semicolon, :pipe, :backtick, :double_colon, :operator], do: {:ok, func_expr, tokens}
+       when tok in [:right_brace, :right_paren, :right_square, :in, :else_kw, :then_kw, :of, :comma, :semicolon, :pipe, :backtick, :double_colon], do: {:ok, func_expr, tokens}
+  defp parse_expr_app_tail(func_expr, [{:operator, _, _, _} | _] = tokens), do: {:ok, func_expr, tokens}
   defp parse_expr_app_tail(func_expr, tokens) do
     case parse_expr_atom(tokens) do
       {:ok, arg_expr, rest} ->
@@ -666,24 +684,20 @@ defmodule Phi.Parser do
     end
   end
   defp parse_expr_atom_base([{:proper_name, _, _, name} | rest]) do
-    case rest do
-       [{:dot, _, _} | _] ->
-          case parse_module_name([{:proper_name, 0, 0, name} | rest], "") do
-             {:ok, full_name, rest2} ->
-                case rest2 do
-                   [{:var_ident, _, _, v} | r] -> {:ok, %AST.ExprVar{name: full_name <> "." <> v}, r}
-                   _ -> {:ok, %AST.ExprVar{name: full_name}, rest2}
-                end
-             _ -> {:ok, %AST.ExprVar{name: name}, rest}
+    case parse_module_name([{:proper_name, 0, 0, name} | rest], "") do
+       {:ok, full_name, rest2} ->
+          case rest2 do
+             [{:dot, _, _}, {:var_ident, _, _, v} | r] -> {:ok, %AST.ExprVar{name: full_name <> "." <> v}, r}
+             _ -> {:ok, %AST.ExprVar{name: full_name}, rest2}
           end
        _ -> {:ok, %AST.ExprVar{name: name}, rest}
     end
   end
-  defp parse_expr_atom_base([{:number, _, _, _Val} | rest]), do: {:ok, %AST.ExprVar{name: "literal"}, rest}
-  defp parse_expr_atom_base([{:float, _, _, _Val} | rest]), do: {:ok, %AST.ExprVar{name: "literal"}, rest}
-  defp parse_expr_atom_base([{:string, _, _, _Val} | rest]), do: {:ok, %AST.ExprVar{name: "literal"}, rest}
-  defp parse_expr_atom_base([{:char, _, _, _Val} | rest]), do: {:ok, %AST.ExprVar{name: "literal"}, rest}
-  defp parse_expr_atom_base([{:atom, _, _, _Val} | rest]), do: {:ok, %AST.ExprVar{name: "literal"}, rest}
+  defp parse_expr_atom_base([{:number, _, _, val} | rest]), do: {:ok, %AST.ExprVar{name: "num_#{val}"}, rest}
+  defp parse_expr_atom_base([{:float, _, _, val} | rest]), do: {:ok, %AST.ExprVar{name: "float_#{val}"}, rest}
+  defp parse_expr_atom_base([{:string, _, _, val} | rest]), do: {:ok, %AST.ExprVar{name: "str_" <> val}, rest}
+  defp parse_expr_atom_base([{:char, _, _, val} | rest]), do: {:ok, %AST.ExprVar{name: "char_#{val}"}, rest}
+  defp parse_expr_atom_base([{:atom, _, _, val} | rest]), do: {:ok, %AST.ExprVar{name: "str_" <> val}, rest}
   defp parse_expr_atom_base([{:unit, _, _} | rest]), do: {:ok, %AST.ExprVar{name: "unit"}, rest}
   defp parse_expr_atom_base([{:left_paren, _, _} | rest]) do
     case rest do
@@ -700,11 +714,23 @@ defmodule Phi.Parser do
   end
   defp parse_expr_atom_base([{:left_square, _, _} | rest]) do
     case parse_comma_separated(rest, &parse_expr/1) do
+      {:ok, exprs, [{:pipe, _, _} | [{:var_ident, _, _, var_name}, {:operator, _, _, "<-"} | rest_gen] = _rest_p]} ->
+        # List comprehension: [expr | var <- list]
+        case parse_expr(rest_gen) do
+          {:ok, gen_list, [{:right_square, _, _} | rest2]} ->
+            body = case exprs do [single] -> single; multi -> %AST.ExprTuple{elems: multi} end
+            lambda = %AST.ExprLam{binder: %AST.ExprVar{name: var_name}, body: body}
+            {:ok, %AST.ExprApp{func: %AST.ExprApp{func: %AST.ExprVar{name: "mapListImpl"}, arg: lambda}, arg: gen_list}, rest2}
+          err -> err
+        end
       {:ok, exprs, [{:pipe, _, _} | rest_p]} ->
         case parse_expr(rest_p) do
           {:ok, tail, [{:right_square, _, _} | rest2]} -> {:ok, %AST.ExprList{elems: exprs, tail: tail}, rest2}
           err -> err
         end
+      {:ok, [%AST.ExprApp{func: %AST.ExprApp{func: %AST.ExprVar{name: ".."}, arg: start_e}, arg: end_e}], [{:right_square, _, _} | rest2]} ->
+        # [start..end] range syntax - desugar to enumIntegerRange start end
+        {:ok, %AST.ExprApp{func: %AST.ExprApp{func: %AST.ExprVar{name: "enumIntegerRange"}, arg: start_e}, arg: end_e}, rest2}
       {:ok, exprs, [{:right_square, _, _} | rest2]} -> {:ok, %AST.ExprList{elems: exprs}, rest2}
       err -> err
     end
@@ -720,9 +746,9 @@ defmodule Phi.Parser do
   end
   defp parse_expr_atom_base(_), do: {:error, :invalid_expression_atom}
 
-  defp parse_expr_atom_tail(_expr, [{:dot, _line, _col}, {:var_ident, _, _, field} | rest]) do
+  defp parse_expr_atom_tail(expr, [{:dot, _line, _col}, {:var_ident, _, _, field} | rest]) do
     # Field access: expr.field
-    parse_expr_atom_tail(%AST.ExprVar{name: "access_#{field}"}, rest)
+    parse_expr_atom_tail(%AST.ExprApp{func: %AST.ExprVar{name: "access_#{field}"}, arg: expr}, rest)
   end
   defp parse_expr_atom_tail(expr, [{:left_brace, _, _} | rest]) do
     # Record update: expr { field = val }
@@ -758,19 +784,16 @@ defmodule Phi.Parser do
   end
 
   defp parse_do_statements([{:right_brace, _, _} | rest], acc) do
-    case rest do
-      [{:right_brace, _, _} | _] -> parse_do_statements(rest, acc)
-      _ -> {:ok, Enum.reverse(acc), rest}
-    end
+    {:ok, Enum.reverse(acc), rest}
   end
   defp parse_do_statements(tokens, acc) do
     case parse_do_statement(tokens) do
       {:ok, stat, rest} ->
          case rest do
            [{:semicolon, _, _} | rest2] -> parse_do_statements(rest2, [stat | acc])
-           [{:right_brace, _, _} | _] -> parse_do_statements(rest, [stat | acc])
+           [{:right_brace, _, _} | rest2] -> {:ok, Enum.reverse([stat | acc]), rest2}
            [{tok, _, _} | _] when tok in [:right_paren, :right_square, :in] -> {:ok, Enum.reverse([stat | acc]), rest}
-           _ -> {:error, :expected_semicolon_or_brace, rest}
+           _ -> parse_do_statements(rest, [stat | acc])
          end
       err -> err
     end
@@ -798,9 +821,9 @@ defmodule Phi.Parser do
     end
   end
 
-  defp parse_record_field_type([{:var_ident, _, _, _name}, {:double_colon, _, _} | rest]) do
+  defp parse_record_field_type([{:var_ident, _, _, name}, {:double_colon, _, _} | rest]) do
     case parse_type(rest) do
-      {:ok, type, rest2} -> {:ok, type, rest2}
+      {:ok, type, rest2} -> {:ok, {name, type}, rest2}
       err -> err
     end
   end
@@ -846,9 +869,9 @@ defmodule Phi.Parser do
       err -> err
     end
   end
-  defp parse_binder([{:number, _, _, _Val} | rest]), do: {:ok, %AST.BinderVar{name: "literal"}, rest}
-  defp parse_binder([{:string, _, _, _Val} | rest]), do: {:ok, %AST.BinderVar{name: "literal"}, rest}
-  defp parse_binder([{:char, _, _, _Val} | rest]), do: {:ok, %AST.BinderVar{name: "literal"}, rest}
+  defp parse_binder([{:number, _, _, val} | rest]), do: {:ok, %AST.BinderVar{name: "num_#{val}"}, rest}
+  defp parse_binder([{:string, _, _, val} | rest]), do: {:ok, %AST.BinderVar{name: "str_" <> val}, rest}
+  defp parse_binder([{:char, _, _, val} | rest]), do: {:ok, %AST.BinderVar{name: "char_#{val}"}, rest}
   defp parse_binder([{:left_paren, _, _} | rest]) do
     case rest do
       [{:operator, _, _, op}, {:right_paren, _, _} | rest2] -> {:ok, %AST.BinderVar{name: op}, rest2}

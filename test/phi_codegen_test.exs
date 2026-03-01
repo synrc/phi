@@ -26,8 +26,8 @@ defmodule PhiCodegenTest do
         :code.load_binary(mod_name, ~c"#{mod_name}", binary)
 
         # Test the compiled Erlang functions!
-        # fortyTwo = 42 is parsed as ExprVar{name: "literal"}, compiles to :literal atom
-        assert :core.fortyTwo() == :literal
+        # fortyTwo = 42 compiles to the integer 42
+        assert :core.fortyTwo() == 42
 
         # id is a function taking 1 argument (desugared to N-arity)
         assert :core.id(99) == 99

@@ -27,6 +27,7 @@ defmodule Phi.Layout do
         cond do
           # 1. Indentation outdent takes priority
           col < layout_col and depth <= layout_depth ->
+            IO.inspect({token, layout_type, layout_col, layout_depth}, label: "Layout Outdent")
             do_resolve(tokens, [{:right_brace, line, col} | acc], ctx_rest, depth)
 
           # 2. Delimiters close layout blocks started at this or greater depth

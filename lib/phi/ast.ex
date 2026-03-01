@@ -119,11 +119,19 @@ defmodule Phi.AST do
     defstruct [:exprs, :branches]
   end
 
+  defmodule ExprDo do
+    defstruct [:statements]
+  end
+
   defmodule BinderVar do
     defstruct [:name]
   end
 
   defmodule BinderConstructor do
     defstruct [:name, :args]
+  end
+
+  defmodule TypeRecord do
+    defstruct [:fields]  # fields is a list of field name strings
   end
 end

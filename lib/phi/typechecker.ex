@@ -138,7 +138,8 @@ defmodule Phi.Typechecker do
 
         %{acc | instances: new_instances}
 
-      %AST.DeclFixity{op: op, name: name}, acc ->
+      %AST.DeclFixity{op: op, name: name} = df, acc ->
+        IO.inspect(df, label: "Processing DeclFixity")
         if name do
           %{acc | term_aliases: Map.put(acc.term_aliases, op, name)}
         else
@@ -184,6 +185,10 @@ defmodule Phi.Typechecker do
   end
   def ast_to_type(%AST.TypeList{element: elem}, env) do
     %TApp{func: %TCon{name: "List"}, arg: ast_to_type(elem, env)}
+  end
+  def ast_to_type(%AST.TypeRecord{fields: fields}, _env) do
+    # Record types are treated as a tuple type with one element per field
+    %TCon{name: "Record#{length(fields)}"}
   end
   def ast_to_type(%AST.TypeArrow{domain: d, codomain: c}, env) do
     Phi.Type.arrow(ast_to_type(d, env), ast_to_type(c, env))

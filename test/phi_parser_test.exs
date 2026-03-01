@@ -21,10 +21,10 @@ defmodule PhiParserTest do
     [foo_decl, bar_decl] = ast.declarations
 
     assert foo_decl.name == "foo"
-    assert foo_decl.expr == %Phi.AST.ExprVar{name: "literal"}
+    assert foo_decl.expr == %Phi.AST.ExprVar{name: "num_1"}
 
     assert bar_decl.name == "bar"
-    assert bar_decl.expr == %Phi.AST.ExprVar{name: "literal"}
+    assert bar_decl.expr == %Phi.AST.ExprVar{name: "num_2"}
   end
 
   test "Parser constructs AST for Data Declarations" do

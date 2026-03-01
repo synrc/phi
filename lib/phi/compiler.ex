@@ -53,7 +53,9 @@ defmodule Phi.Compiler do
   # A non-empty rest means the parser couldn't consume all tokens (likely
   # unsupported syntax), but we still try to compile what was parsed.
   defp normalize_parse({:ok, ast}), do: {:ok, ast}
-  defp normalize_parse({:ok, ast, _rest}), do: {:ok, ast}
+  defp normalize_parse({:ok, _ast, rest}) do
+    {:error, {:partial_parse, rest}}
+  end
   defp normalize_parse(err), do: err
 
   def load_module(mod, bin) do

@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Control — Phi Base Library</title>
+    <link rel="stylesheet" href="index.css">
+</head>
+<body>
+    <nav class="sticky"><!-- same nav as above --></nav>
+    <main class="docs-content">
+        <div class="module-header">
+            <h1>Control</h1>
+            <span style="color:var(--accent);">v0.1.0 • OTP & Concurrency</span>
+        </div>
+        
+        <div class="docs-section">
+            <h3>spawn :: (Unit → Effect a) → Effect (Process a)</h3>
+            <p class="description">Start a lightweight process (Erlang actor).</p>
+        </div>
+        
+        <div class="docs-section">
+            <h3>send :: Process a → a → Effect Unit</h3>
+            <p class="description">Send a message to a process.</p>
+        </div>
+        
+        <h2 style="margin:3rem 0 1rem;">Type Classes</h2>
+        <ul class="function-list">
+            <li>
+                <div class="signature">class Monad m where ...</div>
+                <p class="description">Full Monad stack with do-notation (translated to BEAM).</p>
+            </li>
+        </ul>
+    </main>
+</body>
+</html>

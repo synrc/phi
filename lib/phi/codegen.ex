@@ -126,10 +126,10 @@ defmodule Phi.Codegen do
     local_env = Enum.reduce(dict_names, MapSet.new(), &MapSet.put(&2, &1))
 
     # Map fields
-    map_fields = Enum.map(members, fn %AST.DeclValue{name: m_name, expr: m_expr} ->
+    map_fields = members
+    |> Enum.filter(&match?(%AST.DeclValue{}, &1))
+    |> Enum.map(fn %AST.DeclValue{name: m_name, expr: m_expr} ->
       m_atom = {:atom, 1, String.to_atom(m_name)}
-      # m_expr is usually a variable or lambda.
-      # We need to generate Erlang expr for it.
       erl_val = generate_expr(m_expr, local_env, env, current_mod)
       {:map_field_assoc, 1, m_atom, erl_val}
     end)
@@ -210,11 +210,15 @@ defmodule Phi.Codegen do
     extract_args(body, MapSet.put(env, arg_name), acc_args ++ [erl_arg])
   end
   defp extract_args(%AST.ExprLam{binder: %AST.BinderConstructor{name: c_name, args: c_args}, body: body}, env, acc_args) do
-    arg_vars = Enum.map(c_args, fn %AST.BinderVar{name: arg_name} ->
-      {:var, 1, String.capitalize(arg_name) |> String.to_atom()}
+    arg_vars = Enum.map(c_args, fn
+      %AST.BinderVar{name: arg_name} ->
+        {:var, 1, String.capitalize(arg_name) |> String.to_atom()}
+      other ->
+        generate_pattern(other)
     end)
-    env2 = Enum.reduce(c_args, env, fn %AST.BinderVar{name: arg_name}, acc ->
-      MapSet.put(acc, arg_name)
+    env2 = Enum.reduce(c_args, env, fn
+      %AST.BinderVar{name: arg_name}, acc -> MapSet.put(acc, arg_name)
+      _, acc -> acc
     end)
     erl_tuple_pattern = {:tuple, 1, [{:atom, 1, String.to_atom(c_name)} | arg_vars]}
     extract_args(body, env2, acc_args ++ [erl_tuple_pattern])
@@ -236,8 +240,10 @@ defmodule Phi.Codegen do
   defp try_detect_ffi(%AST.ExprApp{func: f, arg: _a}) do
     case f do
       %AST.ExprApp{func: %AST.ExprVar{name: "ffi" <> n_str}, arg: _mod} ->
-        {n, ""} = Integer.parse(n_str)
-        {:ok, n, f, []}
+        case Integer.parse(n_str) do
+          {n, ""} -> {:ok, n, f, []}
+          _ -> :error
+        end
       _ -> try_detect_ffi(f)
     end
   end
@@ -430,6 +436,7 @@ defmodule Phi.Codegen do
     ]}
   end
 
+  defp generate_expr(nil, _, _, _), do: {:atom, 1, :undefined}
   defp generate_expr(expr, _, _, _) do
     raise "Unsupported expression for codegen: #{inspect(expr)}"
   end
@@ -450,6 +457,11 @@ defmodule Phi.Codegen do
   defp generate_pattern(%AST.BinderTuple{elems: elems}) do
     {:tuple, 1, Enum.map(elems, &generate_pattern/1)}
   end
+  defp generate_pattern(pats) when is_list(pats) do
+    # Pattern list (e.g., tuple patterns from guards) — generate as tuple
+    {:tuple, 1, Enum.map(pats, &generate_pattern/1)}
+  end
+  defp generate_pattern(nil), do: {:var, 1, :_}
   defp generate_pattern(other), do: raise "Unsupported pattern for codegen: #{inspect(other)}"
 
   defp find_bound_vars(%AST.BinderVar{name: "_"}, acc), do: acc

@@ -182,6 +182,9 @@ defmodule Phi.Typechecker do
        arg: Enum.map(elems, &ast_to_type(&1, env))
      }
   end
+  def ast_to_type(%AST.TypeList{element: elem}, env) do
+    %TApp{func: %TCon{name: "List"}, arg: ast_to_type(elem, env)}
+  end
   def ast_to_type(%AST.TypeArrow{domain: d, codomain: c}, env) do
     Phi.Type.arrow(ast_to_type(d, env), ast_to_type(c, env))
   end

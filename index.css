@@ -145,7 +145,7 @@ header::before {
 }
 
 .hero-subtitle {
-    font-size: 1.35rem;
+    font-size: 1.2rem;
     max-width: 620px;
     color: var(--text-secondary);
     font-weight: 400;
@@ -447,7 +447,7 @@ header::before {
 }
 
 .hero-subtitle {
-    font-size: 1.35rem;
+    font-size: 1rem;
     max-width: 620px;
     color: var(--text-secondary);
     font-weight: 400;

@@ -3,8 +3,8 @@
 [![Hex pm](http://img.shields.io/hexpm/v/phi.svg?style=flat)](https://hex.pm/packages/phi)
 
 * **Phi** - PureScript-like functional programming language running on Erlang VM.
-* **Phi** is a strongly-typed language with compile-time type-checking and built-in support for concurrency and distribution.
-* **Phi** empowers SYNRC to build the next generation of scalable, reliable, real-time applications, especially for 5G, IoT, and edge computing.
+* **Phi** is a strongly-typed with compile-time type-checking and built-in support for concurrency and distribution.
+* **Phi** empowers SYNRC to build scalable, reliable, real-time applications, especially for 5G, IoT, and edge computing.
 
 ## Features
 

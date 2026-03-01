@@ -8,50 +8,42 @@ defmodule Phi.Codegen do
   alias Phi.Type
 
   @doc """
-  Generates Erlang AST forms for a given Phi Module.
+  Generates Erlang forms for a module.
+  Expects a desugared AST and a global typing environment.
   """
-  def generate(%AST.Module{name: name, declarations: decls}, env) do
-    # Convention: module Data.List -> 'data_list'
-    mod_atom = name |> String.downcase() |> String.replace(".", "_") |> String.to_atom()
+  def generate(%AST.Module{name: mod_name, declarations: decls}, env) do
+    current_mod = mod_name |> String.downcase() |> String.replace(".", "_") |> String.to_atom()
 
-    # Foreign module is the last part of the module name
-    foreign_mod = List.last(String.split(name, ".")) |> String.to_atom()
-
-    # Provide module attributes: -module(name). -compile(export_all).
-    module_attr = {:attribute, 1, :module, mod_atom}
-    export_all = {:attribute, 1, :compile, :export_all}
-
-    # Generate functions for value declarations
-    functions = Enum.flat_map(decls, fn d ->
-      case generate_decl(d, mod_atom, foreign_mod, env) do
+    functions = Enum.flat_map(decls, fn decl ->
+      case generate_decl(decl, current_mod, current_mod, env) do
         nil -> []
-        {:multi, fs} -> fs
-        f -> [f]
+        {:multi, list} -> list
+        func -> [func]
       end
     end)
 
-    # Forms are a list starting with module attributes, then exports/functions, ending with EOF
+    module_attr = {:attribute, 1, :module, current_mod}
+    export_all = {:attribute, 1, :compile, :export_all}
+
     forms = [module_attr, export_all] ++ functions ++ [{:eof, 1}]
     {:ok, forms}
   end
 
-  # Translates a value declaration into an Erlang function
-  defp generate_decl(%AST.DeclValue{name: name, expr: expr}, current_mod, _foreign_mod, env) do
+  defp generate_decl(%AST.DeclValue{name: name, binders: binders, expr: expr}, current_mod, _foreign_mod, env) do
     func_name = String.to_atom(name)
     {_mod, scheme, _real_name} = get_info(name, env)
     {num_dicts, num_args} = if scheme, do: split_arity(scheme), else: {0, 0}
-    _sig_arity = num_dicts + num_args
 
-    # Extract arguments from nested Lambdas
-    {args, body_expr, env_func} = extract_args(expr, MapSet.new(), [])
+    erl_binders = Enum.map(binders || [], &generate_pattern/1)
+    bound_from_binders = Enum.reduce(binders || [], MapSet.new(), &find_bound_vars/2)
+    {args, body_expr, env_func} = extract_args(expr, bound_from_binders, [])
+    acc_args = erl_binders ++ args
 
-    # Dictionaries are always missing from binders in Phi
     dict_names = get_dict_names(scheme)
     dict_vars = Enum.map(dict_names, fn n -> {:var, 1, String.to_atom(n)} end)
 
-    # If signature has more args than the lambda binders, we must eta-expand
-    {final_args, final_body, final_env} = if length(args) < num_args do
-       needed = num_args - length(args)
+    {final_args, final_body, final_env} = if length(acc_args) < num_args do
+       needed = num_args - length(acc_args)
        new_names = Enum.map(1..needed, fn i -> "eta_#{i}" end)
        new_erl_vars = Enum.map(new_names, fn n -> {:var, 1, String.capitalize(n) |> String.to_atom()} end)
 
@@ -59,14 +51,12 @@ defmodule Phi.Codegen do
          %AST.ExprApp{func: acc, arg: %AST.ExprVar{name: n}}
        end)
 
-       {dict_vars ++ args ++ new_erl_vars, expanded_expr, Enum.reduce(dict_names ++ new_names, env_func, &MapSet.put(&2, &1))}
+       {dict_vars ++ acc_args ++ new_erl_vars, expanded_expr, Enum.reduce(dict_names ++ new_names, env_func, &MapSet.put(&2, &1))}
     else
-       {dict_vars ++ args, body_expr, Enum.reduce(dict_names, env_func, &MapSet.put(&2, &1))}
+       {dict_vars ++ acc_args, body_expr, Enum.reduce(dict_names, env_func, &MapSet.put(&2, &1))}
     end
 
     erl_body = generate_expr(final_body, final_env, env, current_mod)
-
-    # Erlang function clause
     clause = {:clause, 1, final_args, [], [erl_body]}
     {:function, 1, func_name, length(final_args), [clause]}
   end
@@ -74,127 +64,90 @@ defmodule Phi.Codegen do
   defp generate_decl(%AST.DeclForeign{name: name, type: type}, _current_mod, foreign_mod, _env) do
     func_name = String.to_atom(name)
     arity = type_arity(type)
-
-    args = if arity > 0 do
-      Enum.map(1..arity, fn i -> {:var, 1, String.to_atom("A#{i}")} end)
-    else
-      []
-    end
-
-    # name(A1, ...) -> foreign_mod:name(A1, ...).
-    clause = {:clause, 1, args, [], [{:call, 1, {:remote, 1, {:atom, 1, foreign_mod}, {:atom, 1, func_name}}, args}]}
-    {:function, 1, func_name, arity, [clause]}
+    args = if arity > 0, do: Enum.map(1..arity, fn i -> {:var, 1, String.to_atom("A#{i}")} end), else: []
+    call = {:call, 1, {:remote, 1, {:atom, 1, foreign_mod}, {:atom, 1, func_name}}, args}
+    {:function, 1, func_name, arity, [{:clause, 1, args, [], [call]}]}
   end
 
-  defp generate_decl(%AST.DeclClass{members: members}, _current_mod, _foreign_mod, _env) do
-    # For each member in class, generate an accessor:
-    # m(Dict, Args...) -> (maps:get(m, Dict))(Args...)
-    # But since we have curried functions, it might be more complex.
-    # Simple approach: m(Dict) -> maps:get(m, Dict).
-    # Then applications will work.
-
-    # We return a list of Erlang forms (functions), but generate_decl expects one.
-    # We'll use a wrapper to return multiple.
-    functions = Enum.map(members, fn %AST.DeclTypeSignature{name: m_name} ->
-      func_name = String.to_atom(m_name)
-      # eq(Dict) -> maps:get(eq, Dict).
-      dict_var = {:var, 1, :Dict}
-      m_atom = {:atom, 1, func_name}
-      get_call = {:call, 1, {:remote, 1, {:atom, 1, :maps}, {:atom, 1, :get}}, [m_atom, dict_var]}
-      clause = {:clause, 1, [dict_var], [], [get_call]}
-      {:function, 1, func_name, 1, [clause]}
+  defp generate_decl(%AST.DeclData{constructors: ctors}, _, _, _) do
+    functions = Enum.flat_map(ctors, fn {c_name, c_args} ->
+      f_atom = String.to_atom(c_name)
+      case c_args do
+        [%AST.TypeRecord{fields: fields}] ->
+          # Record constructor takes 1 arg (the map), accessor functions use maps:get
+          constructor_fn = {:function, 1, f_atom, 1, [{:clause, 1, [{:var, 1, :X1}], [], [{:tuple, 1, [{:atom, 1, f_atom}, {:var, 1, :X1}]}]}]}
+          accessor_fns = Enum.map(fields, fn field_name ->
+            acc_atom = String.to_atom("access_#{field_name}")
+            arg_var = {:var, 1, :R}
+            # access_field(R) -> maps:get(field, element(2, R))
+            inner_map = {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :element}},
+                         [{:integer, 1, 2}, arg_var]}
+            body = {:call, 1, {:remote, 1, {:atom, 1, :maps}, {:atom, 1, :get}},
+                    [{:atom, 1, String.to_atom(field_name)}, inner_map]}
+            {:function, 1, acc_atom, 1, [{:clause, 1, [arg_var], [], [body]}]}
+          end)
+          [constructor_fn | accessor_fns]
+        _ ->
+          arity = length(c_args)
+          args = if arity > 0, do: Enum.map(1..arity, fn i -> {:var, 1, String.to_atom("X#{i}")} end), else: []
+          [{:function, 1, f_atom, arity, [{:clause, 1, args, [], [{:tuple, 1, [{:atom, 1, f_atom} | args]}]}]}]
+      end
     end)
     {:multi, functions}
   end
 
-  defp generate_decl(%AST.DeclInstance{class: class_name, types: types, members: members, constraints: constraints}, current_mod, _foreign_mod, env) do
-    # dict_Eq_Int() -> #{ eq => fun ... }.
+  defp generate_decl(%AST.DeclClass{members: members}, _, _, _) do
+    functions = Enum.map(members, fn %AST.DeclTypeSignature{name: m_name} ->
+      f_atom = String.to_atom(m_name)
+      dict_var = {:var, 1, :Dict}
+      {:function, 1, f_atom, 1, [{:clause, 1, [dict_var], [], [{:call, 1, {:remote, 1, {:atom, 1, :maps}, {:atom, 1, :get}}, [{:atom, 1, f_atom}, dict_var]}]}]}
+    end)
+    {:multi, functions}
+  end
+
+  defp generate_decl(%AST.DeclInstance{class: class_name, types: types, members: members, constraints: cs}, current_mod, _, env) do
     itypes = Enum.map(types, &Phi.Typechecker.ast_to_type(&1, env))
     type_suffixes = Enum.map(itypes, fn
       %Type.TApp{func: %Type.TApp{func: %Type.TCon{name: "Tuple"}}} -> "Tuple"
-      %Type.TCon{name: n} -> n
-      %Type.TApp{func: %Type.TCon{name: "List"}} -> "List"
-      _ -> "Var"
+      %Type.TApp{func: %Type.TApp{func: %Type.TCon{name: "->"}}} -> "Fun"
+      %Type.TApp{func: %Type.TCon{name: n}} -> n
+      %Type.TCon{name: name} -> name
+      %Type.TVar{id: id} -> "v#{id}"
+      _ -> "Any"
     end)
-    dict_name = Enum.join(["dict", class_name | type_suffixes], "_") |> String.to_atom()
+    dict_name = String.to_atom("dict_#{class_name}_#{Enum.join(type_suffixes, "_")}")
 
-    # Instance constraints as arguments (dictionaries)
-    # We wrap them in a dummy constrained type to use get_dict_names
-    dummy_type = %AST.TypeConstrained{constraints: constraints, type: %AST.TypeConstructor{name: "Unit"}}
-    dict_names = get_dict_names(dummy_type)
-    erl_args = Enum.map(dict_names, fn n -> {:var, 1, String.to_atom(n)} end)
-    local_env = Enum.reduce(dict_names, MapSet.new(), &MapSet.put(&2, &1))
+    # Handle constraints: instance Eq a => Eq (Maybe a)
+    dict_args = if cs do
+      Enum.map(cs, fn
+        %AST.TypeApp{func: %AST.TypeConstructor{name: cn}, arg: %AST.TypeVar{name: vn}} -> "Dict_#{cn}_#{vn}"
+        _ -> "Dict_K"
+      end)
+    else
+      []
+    end
+    erl_args = Enum.map(dict_args, fn n -> {:var, 1, String.to_atom(n)} end)
+    local_env = MapSet.new(dict_args)
 
-    # Map fields
-    map_fields = members
-    |> Enum.filter(&match?(%AST.DeclValue{}, &1))
-    |> Enum.map(fn %AST.DeclValue{name: m_name, expr: m_expr} ->
-      m_atom = {:atom, 1, String.to_atom(m_name)}
+    map_fields = Enum.map(members, fn %AST.DeclValue{name: m_name, expr: m_expr} ->
       erl_val = generate_expr(m_expr, local_env, env, current_mod)
-      {:map_field_assoc, 1, m_atom, erl_val}
+      {:map_field_assoc, 1, {:atom, 1, String.to_atom(m_name)}, erl_val}
     end)
-
-    erl_map = {:map, 1, map_fields}
-    clause = {:clause, 1, erl_args, [], [erl_map]}
-    {:function, 1, dict_name, length(erl_args), [clause]}
+    {:function, 1, dict_name, length(erl_args), [{:clause, 1, erl_args, [], [{:map, 1, map_fields}]}]}
   end
 
-  # Generate constructor functions for data types.
-  # e.g. data Maybe a = Nothing | Just a
-  # generates: 'Nothing'() -> {'Nothing'}. and 'Just'(X1) -> {'Just', X1}.
-  defp generate_decl(%AST.DeclData{constructors: constructors}, _current_mod, _foreign_mod, _env) do
-    fns = Enum.map(constructors, fn {c_name, c_args} ->
-      arity = length(c_args)
-      fn_atom = String.to_atom(c_name)
-      tag = {:atom, 1, fn_atom}
-      if arity == 0 do
-        body = {:tuple, 1, [tag]}
-        {:function, 1, fn_atom, 0, [{:clause, 1, [], [], [body]}]}
-      else
-        arg_vars = Enum.map(1..arity, fn i -> {:var, 1, String.to_atom("X#{i}")} end)
-        body = {:tuple, 1, [tag | arg_vars]}
-        {:function, 1, fn_atom, arity, [{:clause, 1, arg_vars, [], [body]}]}
-      end
-    end)
-    {:multi, fns}
-  end
-
-  # Newtype constructor: treated as a 1-arg data constructor for compatibility.
-  defp generate_decl(%AST.DeclNewtype{constructor: c_name}, _current_mod, _foreign_mod, _env) do
-    fn_atom = String.to_atom(c_name)
-    tag = {:atom, 1, fn_atom}
-    arg = {:var, 1, :X1}
-    body = {:tuple, 1, [tag, arg]}
-    {:function, 1, fn_atom, 1, [{:clause, 1, [arg], [], [body]}]}
-  end
-
-  # Ignore types, fixity, etc. for code generation (erased at runtime)
   defp generate_decl(_, _, _, _), do: nil
 
   defp type_arity(%Type.TApp{func: %Type.TApp{func: %Type.TCon{name: "->"}}, arg: c}), do: 1 + type_arity(c)
   defp type_arity(%AST.TypeArrow{codomain: c}), do: 1 + type_arity(c)
   defp type_arity(%AST.TypeForall{type: t}), do: type_arity(t)
-  defp type_arity(%AST.TypeConstrained{constraints: c, type: t}), do: length(c) + type_arity(t)
+  defp type_arity(%AST.TypeConstrained{constraints: cs, type: t}), do: length(cs) + type_arity(t)
   defp type_arity(%Type.Forall{type: t}), do: type_arity(t)
   defp type_arity(%Type.TConstrained{type: t}), do: 1 + type_arity(t)
   defp type_arity(_), do: 0
 
-  # Helper to get arity and module from Env
-  defp get_info(name, env) do
-    real_name = Phi.Typechecker.Env.resolve_term_alias(env, name)
-    case Env.lookup(env, real_name) do
-      {:ok, {mod, scheme}} -> {mod, scheme, real_name}
-      :error -> {nil, nil, real_name}
-    end
-  end
-
-  defp split_arity(scheme) do
-    do_split_arity(scheme, 0, 0)
-  end
-  defp do_split_arity(%AST.TypeForall{type: t}, c, a), do: do_split_arity(t, c, a)
-  defp do_split_arity(%AST.TypeConstrained{constraints: cs, type: t}, c, a), do: do_split_arity(t, c + length(cs), a)
-  defp do_split_arity(%AST.TypeArrow{codomain: res}, c, a), do: do_split_arity(res, c, a + 1)
-  defp do_split_arity(%Type.Forall{type: t}, c, a), do: do_split_arity(t, c, a)
+  defp split_arity(%Type.Forall{type: t}), do: do_split_arity(t, 0, 0)
+  defp split_arity(t), do: do_split_arity(t, 0, 0)
   defp do_split_arity(%Type.TConstrained{type: t}, c, a), do: do_split_arity(t, c + 1, a)
   defp do_split_arity(%Type.TApp{func: %Type.TApp{func: %Type.TCon{name: "->"}}, arg: res}, c, a), do: do_split_arity(res, c, a + 1)
   defp do_split_arity(_, c, a), do: {c, a}
@@ -204,108 +157,65 @@ defmodule Phi.Codegen do
   end
   defp do_get_dict_names(%AST.TypeForall{type: t}, acc), do: do_get_dict_names(t, acc)
   defp do_get_dict_names(%AST.TypeConstrained{constraints: cs, type: t}, acc) do
-    names = Enum.map(cs, fn c ->
-       case flatten_type_app(c, []) do
-         [%AST.TypeConstructor{name: cn} | args] ->
-           suffix = Enum.map(args, fn
-             %AST.TypeVar{name: n} -> n
-             %AST.TypeConstructor{name: n} -> n
-             _ -> "Var"
-           end) |> Enum.join("_")
-           "Dict_#{cn}_#{suffix}"
-         _ -> "Dict"
-       end
+    names = Enum.map(cs, fn
+      %AST.TypeApp{func: %AST.TypeConstructor{name: cn}, arg: %AST.TypeVar{name: vn}} -> "Dict_#{cn}_#{vn}"
+      _ -> "Dict_K"
     end)
     do_get_dict_names(t, acc ++ names)
   end
-  defp do_get_dict_names(%AST.TypeArrow{codomain: res}, acc), do: do_get_dict_names(res, acc)
   defp do_get_dict_names(%Type.Forall{type: t}, acc), do: do_get_dict_names(t, acc)
-  defp do_get_dict_names(%Type.TConstrained{class_name: cn, args: args, type: t}, acc) do
-    suffix = Enum.map(args, fn
-      %Type.TVar{id: id} -> "#{id}"
-      %Type.TCon{name: n} -> n
-      _ -> "Var"
-    end) |> Enum.join("_")
-    do_get_dict_names(t, acc ++ ["Dict_#{cn}_#{suffix}"])
+  defp do_get_dict_names(%Type.TConstrained{class_name: cn, type: t}, acc) do
+     do_get_dict_names(t, acc ++ ["Dict_#{cn}_X"])
   end
-  defp do_get_dict_names(%Type.TApp{func: %Type.TApp{func: %Type.TCon{name: "->"}}, arg: res}, acc), do: do_get_dict_names(res, acc)
   defp do_get_dict_names(_, acc), do: acc
-
-  defp flatten_type_app(%AST.TypeApp{func: f, arg: a}, acc), do: flatten_type_app(f, [a | acc])
-  defp flatten_type_app(t, acc), do: [t | acc]
 
   defp extract_args(%AST.ExprLam{binder: binder, body: body}, env, acc_args) do
     erl_pat = generate_pattern(binder)
     new_vars = find_bound_vars(binder, MapSet.new())
-    env2 = MapSet.union(env, new_vars)
-    extract_args(body, env2, acc_args ++ [erl_pat])
+    extract_args(body, MapSet.union(env, new_vars), acc_args ++ [erl_pat])
   end
-  defp extract_args(expr, env, acc_args) do
-    case try_detect_ffi(expr) do
-      {:ok, n, _f, _args} when n > 0 ->
-        new_names = Enum.map(1..n, fn i -> "eta#{i}" end)
-        new_erl_vars = Enum.map(new_names, fn n -> {:var, 1, String.capitalize(n) |> String.to_atom()} end)
-        final_expr = Enum.reduce(new_names, expr, fn name, acc ->
-          %AST.ExprApp{func: acc, arg: %AST.ExprVar{name: name}}
-        end)
-        {acc_args ++ new_erl_vars, final_expr, Enum.reduce(new_names, env, &MapSet.put(&2, &1))}
-      _ ->
-        {acc_args, expr, env}
+  defp extract_args(expr, env, acc_args), do: {acc_args, expr, env}
+
+  defp get_info(name, env) do
+    real_name = Env.resolve_term_alias(env, name)
+    case Env.lookup(env, real_name) do
+      {:ok, {mod, scheme}} -> {mod, scheme, real_name}
+      :error -> {nil, nil, real_name}
     end
   end
 
-  defp try_detect_ffi(%AST.ExprApp{func: f, arg: _a}) do
-    case f do
-      %AST.ExprApp{func: %AST.ExprVar{name: "ffi" <> n_str}, arg: _mod} ->
-        case Integer.parse(n_str) do
-          {n, ""} -> {:ok, n, f, []}
-          _ -> :error
-        end
-      _ -> try_detect_ffi(f)
-    end
-  end
-  defp try_detect_ffi(_), do: :error
-
-  defp generate_expr(expr, local_env, global_env, current_mod)
-
-  defp generate_expr(%AST.ExprVar{name: "num_" <> num_str}, _local_env, _global_env, _current_mod) do
-    {num, ""} = Integer.parse(num_str)
-    {:integer, 1, num}
-  end
-  defp generate_expr(%AST.ExprVar{name: "true"}, _local_env, _global_env, _current_mod), do: {:atom, 1, :true}
-  defp generate_expr(%AST.ExprVar{name: "false"}, _local_env, _global_env, _current_mod), do: {:atom, 1, :false}
-  defp generate_expr(%AST.ExprVar{name: "unit"}, _local_env, _global_env, _current_mod), do: {:atom, 1, :unit}
-  defp generate_expr(%AST.ExprVar{name: "literal"}, _local_env, _global_env, _current_mod), do: {:atom, 1, :literal}
-
-  defp generate_expr(%AST.ExprVar{name: name}, local_env, global_env, current_mod) do
-    if MapSet.member?(local_env, name) do
-      erl_var = String.capitalize(name) |> String.to_atom()
-      {:var, 1, erl_var}
+  defp generate_expr(expr, local_env, global_env, current_mod, name \\ nil, fix_env \\ %{})
+  defp generate_expr(%AST.ExprVar{name: "num_" <> ns}, _, _, _, _, _), do: {:integer, 1, String.to_integer(ns)}
+  defp generate_expr(%AST.ExprVar{name: "float_" <> fs}, _, _, _, _, _), do: {:float, 1, String.to_float(fs)}
+  defp generate_expr(%AST.ExprVar{name: "str_" <> s}, _, _, _, _, _), do: {:string, 1, String.to_charlist(s)}
+  defp generate_expr(%AST.ExprVar{name: "char_" <> cs}, _, _, _, _, _), do: {:integer, 1, String.to_integer(cs)}
+  defp generate_expr(%AST.ExprVar{name: "true"}, _, _, _, _, _), do: {:atom, 1, :true}
+  defp generate_expr(%AST.ExprVar{name: "false"}, _, _, _, _, _), do: {:atom, 1, :false}
+  defp generate_expr(%AST.ExprVar{name: "unit"}, _, _, _, _, _), do: {:atom, 1, :unit}
+  defp generate_expr(%AST.ExprVar{name: name}, local_env, global_env, current_mod, _name, fix_env) do
+    if Map.has_key?(fix_env, name) do
+      Map.get(fix_env, name)
     else
-      # Special cases for literals/builtins handled as vars in AST
-      case name do
-        "literal" -> {:atom, 1, :todo_literal}
-        "unit" -> {:atom, 1, :unit}
-        _ ->
-          {mod, scheme, real_name} = get_info(name, global_env)
-
-          # Constructor fallback: when the defining module failed to compile,
-          # scheme is nil but the name is still a constructor (uppercase).
-          # Inline as a tuple to match pattern-match representation.
-          if scheme == nil && constructor_name?(real_name) do
-            {:tuple, 1, [{:atom, 1, String.to_atom(real_name)}]}
+    if MapSet.member?(local_env, name) do
+      {:var, 1, String.capitalize(name) |> String.to_atom()}
+    else
+      {mod, scheme, real_name} = get_info(name, global_env)
+      if scheme == nil && constructor_name?(real_name) do
+        {:tuple, 1, [{:atom, 1, String.to_atom(real_name)}]}
+      else
+        {num_dicts, num_args} = if scheme, do: split_arity(scheme), else: {0, 0}
+        total_arity = num_dicts + num_args
+        if total_arity == 0 and not constructor_name?(real_name) do
+          if mod && mod != current_mod do
+             {:fun, 1, {:function, {:atom, 1, mod}, {:atom, 1, String.to_atom(real_name)}, {:integer, 1, 2}}}
           else
-
-          {num_dicts, num_args} = if scheme, do: split_arity(scheme), else: {0, 0}
-          total_arity = num_dicts + num_args
-
+             {:atom, 1, String.to_atom(real_name)}
+          end
+        else
           if num_dicts > 0 do
-             # Constrained function or member.
-             class_name = global_env.member_to_class[real_name]
-             dict_arg_name = find_dictionary(class_name, local_env)
-
-             if class_name do
-               # Class member accessor pattern
+            class_name = global_env.member_to_class[real_name]
+            dict_arg_name = find_dictionary(class_name, local_env)
+            if class_name do
                if dict_arg_name do
                  dict_expr = {:var, 1, String.to_atom(dict_arg_name)}
                  if mod && mod != current_mod do
@@ -314,306 +224,258 @@ defmodule Phi.Codegen do
                    {:call, 1, {:atom, 1, String.to_atom(real_name)}, [dict_expr]}
                  end
                else
-                 # No dict in scope, return function reference
                  generate_static_call(real_name, mod, 1, [], current_mod)
                end
-             else
-               # Not a class member but has constraints
+            else
                if dict_arg_name do
-                  dict_expr = {:var, 1, String.to_atom(dict_arg_name)}
-                  generate_static_call(real_name, mod, total_arity, [dict_expr], current_mod)
+                 generate_static_call(real_name, mod, total_arity, [{:var, 1, String.to_atom(dict_arg_name)}], current_mod)
                else
-                  generate_static_call(real_name, mod, total_arity, [], current_mod)
+                 generate_static_call(real_name, mod, total_arity, [], current_mod)
                end
-             end
+            end
           else
             if total_arity == 0 do
-              if constructor_name?(real_name) do
-                # 0-arg data constructor: call the constructor function so it
-                # returns the correct tuple representation e.g. {'Nothing'}.
-                generate_static_call(real_name, mod, 0, [], current_mod)
-              else
-                # Non-constructor 0-arity reference (constants, foreign refs).
-                if mod && mod != current_mod do
-                  {:remote, 1, {:atom, 1, mod}, {:atom, 1, String.to_atom(real_name)}}
-                else
-                  {:atom, 1, String.to_atom(real_name)}
-                end
-              end
+               # 0-arity constructors (e.g. Nothing, LT) are always tuples
+               {:tuple, 1, [{:atom, 1, String.to_atom(real_name)}]}
             else
-              # Partial application (0 args provided)
-              generate_static_call(real_name, mod, total_arity, [], current_mod)
+               generate_static_call(real_name, mod, total_arity, [], current_mod)
             end
           end
-          end  # end nil-scheme constructor fallback
+        end
       end
+    end
     end
   end
 
-  defp generate_expr(%AST.ExprLam{binder: binder, body: body}, local_env, global_env, current_mod) do
+  defp generate_expr(%AST.ExprLam{binder: binder, body: body}, local_env, global_env, current_mod, name, fix_env) do
     erl_pat = generate_pattern(binder)
     bound_vars = find_bound_vars(binder, MapSet.new())
-    local_env2 = MapSet.union(local_env, bound_vars)
-    erl_body = generate_expr(body, local_env2, global_env, current_mod)
+    local_env2 = if name, do: MapSet.put(local_env, name), else: local_env
+    local_env3 = MapSet.union(local_env2, bound_vars)
+    erl_body = generate_expr(body, local_env3, global_env, current_mod, nil, fix_env)
     clause = {:clause, 1, [erl_pat], [], [erl_body]}
-    {:fun, 1, {:clauses, [clause]}}
+    if name && MapSet.member?(find_used_vars(body, MapSet.new()), name) do
+      {:named_fun, 1, String.capitalize(name) |> String.to_atom(), [clause]}
+    else
+      {:fun, 1, {:clauses, [clause]}}
+    end
   end
 
-  defp generate_expr(%AST.ExprApp{} = app, local_env, global_env, current_mod) do
+  defp generate_expr(%AST.ExprApp{} = app, local_env, global_env, current_mod, _name, fix_env) do
     {f, args} = flatten_app(app, [])
-    erl_args = Enum.map(args, &generate_expr(&1, local_env, global_env, current_mod))
-
+    erl_args = Enum.map(args, &generate_expr(&1, local_env, global_env, current_mod, nil, fix_env))
     case f do
       %AST.ExprVar{name: name} ->
-        if MapSet.member?(local_env, name) do
-          erl_f = {:var, 1, String.capitalize(name) |> String.to_atom()}
-          Enum.reduce(erl_args, erl_f, fn arg, acc -> {:call, 1, acc, [arg]} end)
-        else
+        cond do
+          Map.has_key?(fix_env, name) ->
+            erl_f = Map.get(fix_env, name)
+            Enum.reduce(erl_args, erl_f, fn arg, acc -> {:call, 1, acc, [arg]} end)
+          MapSet.member?(local_env, name) ->
+            erl_f = {:var, 1, String.capitalize(name) |> String.to_atom()}
+            Enum.reduce(erl_args, erl_f, fn arg, acc -> {:call, 1, acc, [arg]} end)
+          true ->
           {mod, scheme, real_name} = get_info(name, global_env)
-
-          # Constructor fallback: inline as tuple when scheme is unknown.
           if scheme == nil && constructor_name?(real_name) do
             {:tuple, 1, [{:atom, 1, String.to_atom(real_name)} | erl_args]}
           else
-
-          {num_dicts, num_args} = if scheme, do: split_arity(scheme), else: {0, 0}
-          total_arity = num_dicts + num_args
-
-          if num_dicts > 0 do
-             class_name = global_env.member_to_class[real_name]
-             dict_arg_name = find_dictionary(class_name, local_env)
-
-             if class_name do
-               # Class member: real_name is an accessor (arity 1).
-               # Generate (accessor(Dict))(arg1)(arg2)...
-               accessor_call = if dict_arg_name do
-                 dict_expr = {:var, 1, String.to_atom(dict_arg_name)}
-                 if mod && mod != current_mod do
-                   {:call, 1, {:remote, 1, {:atom, 1, mod}, {:atom, 1, String.to_atom(real_name)}}, [dict_expr]}
+            {num_dicts, num_args} = if scheme, do: split_arity(scheme), else: {0, 0}
+            total_arity = num_dicts + num_args
+            if num_dicts > 0 do
+               class_name = global_env.member_to_class[real_name]
+               dict_arg_name = find_dictionary(class_name, local_env)
+               if class_name do
+                 accessor_call = if dict_arg_name do
+                    dict_expr = {:var, 1, String.to_atom(dict_arg_name)}
+                    if mod && mod != current_mod do
+                      {:call, 1, {:remote, 1, {:atom, 1, mod}, {:atom, 1, String.to_atom(real_name)}}, [dict_expr]}
+                    else
+                      {:call, 1, {:atom, 1, String.to_atom(real_name)}, [dict_expr]}
+                    end
                  else
-                   {:call, 1, {:atom, 1, String.to_atom(real_name)}, [dict_expr]}
+                    generate_static_call(real_name, mod, 1, [], current_mod)
                  end
+                 Enum.reduce(erl_args, accessor_call, fn arg, acc -> {:call, 1, acc, [arg]} end)
                else
-                 # No dict in scope, just call the accessor without dict (will likely fail at runtime)
-                 if mod && mod != current_mod do
-                   {:remote, 1, {:atom, 1, mod}, {:atom, 1, String.to_atom(real_name)}}
-                 else
-                   {:atom, 1, String.to_atom(real_name)}
-                 end
+                 final_args = if dict_arg_name, do: [{:var, 1, String.to_atom(dict_arg_name)} | erl_args], else: erl_args
+                 generate_static_call(real_name, mod, total_arity, final_args, current_mod)
                end
-               # Apply remaining args via currying
-               Enum.reduce(erl_args, accessor_call, fn arg, acc -> {:call, 1, acc, [arg]} end)
-             else
-               # Not a class member, but still has dict constraints
-               final_args = if dict_arg_name do
-                  [{:var, 1, String.to_atom(dict_arg_name)} | erl_args]
-               else
-                  erl_args
-               end
-               generate_static_call(real_name, mod, total_arity, final_args, current_mod)
-             end
-          else
-             generate_static_call(real_name, mod, total_arity, erl_args, current_mod)
+            else
+               # For unknown functions (scheme=nil), use actual arg count to avoid f()(args) pattern
+               effective_arity = if scheme == nil, do: length(erl_args), else: total_arity
+               generate_static_call(real_name, mod, effective_arity, erl_args, current_mod)
+            end
           end
-          end  # end nil-scheme constructor fallback
         end
       other ->
-        erl_f = generate_expr(other, local_env, global_env, current_mod)
+        erl_f = generate_expr(other, local_env, global_env, current_mod, nil, fix_env)
         Enum.reduce(erl_args, erl_f, fn arg, acc -> {:call, 1, acc, [arg]} end)
     end
   end
 
-  defp generate_expr(%AST.ExprLet{bindings: bindings, body: body}, local_env, global_env, current_mod) do
-    # Compile each binding as a match expression, accumulating the local env.
+  defp generate_expr(%AST.ExprLet{bindings: bs, body: body}, local_env, global_env, current_mod, _name, fix_env) do
+    all_names = Enum.map(bs, fn %AST.DeclValue{name: n} -> n; _ -> nil end) |> Enum.reject(&is_nil/1)
+    env_with_names = Enum.reduce(all_names, local_env, &MapSet.put(&2, &1))
+    sorted = sort_bindings(bs)
     {match_exprs, final_env} =
-      Enum.reduce(bindings, {[], local_env}, fn
-        # Pattern binding: let <pat> = rhs → generate as direct Erlang match
-        %AST.DeclValue{name: "_pat", binders: [pat], expr: rhs}, {acc_stmts, acc_env} ->
-          erl_pat = generate_pattern(pat)
-          erl_rhs = generate_expr(rhs, acc_env, global_env, current_mod)
-          bound = find_bound_vars(pat, MapSet.new())
-          {acc_stmts ++ [{:match, 1, erl_pat, erl_rhs}], MapSet.union(acc_env, bound)}
-        %AST.DeclValue{name: name, binders: [], expr: val_expr}, {acc_stmts, acc_env} ->
-          erl_var = {:var, 1, String.capitalize(name) |> String.to_atom()}
-          erl_val = generate_expr(val_expr, acc_env, global_env, current_mod)
-          {acc_stmts ++ [{:match, 1, erl_var, erl_val}], MapSet.put(acc_env, name)}
-        %AST.DeclValue{name: name, binders: binders, expr: val_expr}, {acc_stmts, acc_env} ->
-          lam = Enum.reduce(Enum.reverse(binders), val_expr, fn b, acc ->
-            %AST.ExprLam{binder: b, body: acc}
-          end)
-          erl_var = {:var, 1, String.capitalize(name) |> String.to_atom()}
-          erl_val = generate_expr(lam, acc_env, global_env, current_mod)
-          {acc_stmts ++ [{:match, 1, erl_var, erl_val}], MapSet.put(acc_env, name)}
-        _other, acc -> acc
+      Enum.reduce(sorted, {[], env_with_names}, fn
+        %AST.DeclValue{name: "_pat", binders: [pat], expr: rhs}, {acc_s, acc_e} ->
+          {:match, 1, generate_pattern(pat), generate_expr(rhs, acc_e, global_env, current_mod, nil, fix_env)}
+          |> then(fn m -> {acc_s ++ [m], MapSet.union(acc_e, find_bound_vars(pat, MapSet.new()))} end)
+        %AST.DeclValue{name: name, expr: rhs}, {acc_s, acc_e} ->
+          used_in_rhs = find_used_vars(rhs, MapSet.new())
+          if MapSet.member?(used_in_rhs, name) do
+            # Self-referential binding: use process dictionary to avoid unbound var in Erlang
+            ref_var_atom = (String.capitalize(name) <> "__FIX_REF") |> String.to_atom()
+            n_atom = String.capitalize(name) |> String.to_atom()
+            ref_assign = {:match, 1, {:var, 1, ref_var_atom},
+              {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :make_ref}}, []}}
+            get_expr = {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :get}},
+              [{:var, 1, ref_var_atom}]}
+            new_fix_env = Map.put(fix_env, name, get_expr)
+            env_for_rhs = MapSet.delete(acc_e, name)
+            erl_rhs = generate_expr(rhs, env_for_rhs, global_env, current_mod, name, new_fix_env)
+            match = {:match, 1, {:var, 1, n_atom}, erl_rhs}
+            put_call = {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :put}},
+              [{:var, 1, ref_var_atom}, {:var, 1, n_atom}]}
+            {acc_s ++ [ref_assign, match, put_call], acc_e}
+          else
+            match = {:match, 1, {:var, 1, String.capitalize(name) |> String.to_atom()}, generate_expr(rhs, acc_e, global_env, current_mod, name, fix_env)}
+            {acc_s ++ [match], acc_e}
+          end
+        _, acc -> acc
       end)
-
-    erl_body = generate_expr(body, final_env, global_env, current_mod)
+    erl_body = generate_expr(body, final_env, global_env, current_mod, nil, fix_env)
     {:block, 1, match_exprs ++ [erl_body]}
   end
 
-  defp generate_expr(%AST.ExprCase{exprs: exprs, branches: branches}, local_env, global_env, current_mod) do
-    erl_targets = Enum.map(exprs, &generate_expr(&1, local_env, global_env, current_mod))
-    erl_target = case erl_targets do
-      [single] -> single
-      multiple -> {:tuple, 1, multiple}
-    end
-    erl_clauses = Enum.map(branches, fn {patterns, body} ->
-      patterns_list = if is_list(patterns), do: patterns, else: [patterns]
-      erl_pats = Enum.map(patterns_list, &generate_pattern/1)
-      erl_pat = case erl_pats do
-        [single_p] -> single_p
-        multiple_p -> {:tuple, 1, multiple_p}
-      end
-      new_vars = Enum.reduce(patterns_list, MapSet.new(), &find_bound_vars/2)
-      local_env2 = MapSet.union(local_env, new_vars)
-      erl_body = generate_expr(body, local_env2, global_env, current_mod)
-      {:clause, 1, [erl_pat], [], [erl_body]}
+  defp generate_expr(%AST.ExprCase{exprs: es, branches: bs}, local_env, global_env, current_mod, _name, fix_env) do
+    erl_targets = Enum.map(es, &generate_expr(&1, local_env, global_env, current_mod, nil, fix_env))
+    erl_target = case erl_targets do [s] -> s; m -> {:tuple, 1, m} end
+    erl_clauses = Enum.map(bs, fn {pats, body} ->
+      pl = if is_list(pats), do: pats, else: [pats]
+      erl_pats = Enum.map(pl, &generate_pattern/1)
+      erl_p = case erl_pats do [sp] -> sp; mp -> {:tuple, 1, mp} end
+      local_env2 = MapSet.union(local_env, Enum.reduce(pl, MapSet.new(), &find_bound_vars/2))
+      {:clause, 1, [erl_p], [], [generate_expr(body, local_env2, global_env, current_mod, nil, fix_env)]}
     end)
     {:case, 1, erl_target, erl_clauses}
   end
 
-  defp generate_expr(%AST.ExprTuple{elems: elems}, local_env, global_env, current_mod) do
-    erl_elems = Enum.map(elems, &generate_expr(&1, local_env, global_env, current_mod))
-    {:tuple, 1, erl_elems}
+  defp generate_expr(%AST.ExprTuple{elems: es}, local_env, global_env, current_mod, _, fix_env), do: {:tuple, 1, Enum.map(es, &generate_expr(&1, local_env, global_env, current_mod, nil, fix_env))}
+  defp generate_expr(%AST.ExprList{elems: es, tail: t}, local_env, global_env, current_mod, _, fix_env) do
+    erl_elems = Enum.map(es, &generate_expr(&1, local_env, global_env, current_mod, nil, fix_env))
+    erl_tail = if t, do: generate_expr(t, local_env, global_env, current_mod, nil, fix_env), else: {nil, 1}
+    Enum.reduce(Enum.reverse(erl_elems), erl_tail, fn e, acc -> {:cons, 1, e, acc} end)
   end
-
-  defp generate_expr(%AST.ExprList{elems: elems, tail: t}, local_env, global_env, current_mod) do
-    erl_elems = Enum.map(elems, &generate_expr(&1, local_env, global_env, current_mod))
-    erl_tail = case t do
-      nil -> {nil, 1}
-      other -> generate_expr(other, local_env, global_env, current_mod)
-    end
-    Enum.reduce(Enum.reverse(erl_elems), erl_tail, fn elem, acc ->
-      {:cons, 1, elem, acc}
-    end)
-  end
-
-  defp generate_expr(%AST.ExprIf{cond: c, then_br: t, else_br: e}, local_env, global_env, current_mod) do
-    {:if, 1, [
-      {:clause, 1, [], [[generate_expr(c, local_env, global_env, current_mod)]], [generate_expr(t, local_env, global_env, current_mod)]},
-      {:clause, 1, [], [[{:atom, 1, :true}]], [generate_expr(e, local_env, global_env, current_mod)]}
+  defp generate_expr(%AST.ExprIf{cond: c, then_br: t, else_br: e}, local_env, global_env, current_mod, _, fix_env) do
+    {:case, 1, generate_expr(c, local_env, global_env, current_mod, nil, fix_env), [
+      {:clause, 1, [{:atom, 1, :true}], [], [generate_expr(t, local_env, global_env, current_mod, nil, fix_env)]},
+      {:clause, 1, [{:atom, 1, :false}], [], [generate_expr(e, local_env, global_env, current_mod, nil, fix_env)]}
     ]}
   end
+  defp generate_expr(nil, _, _, _, _, _), do: {:atom, 1, :undefined}
+  defp generate_expr(expr, _, _, _, _, _), do: raise "Unsupported: #{inspect(expr)}"
 
-  defp generate_expr(nil, _, _, _), do: {:atom, 1, :undefined}
-  defp generate_expr(expr, _, _, _) do
-    if is_list(expr) do
-       IO.puts("Crash in generate_expr with list: #{inspect(expr, limit: :infinity)}")
-       {:current_stacktrace, trace} = Process.info(self(), :current_stacktrace)
-       IO.inspect(trace)
-    end
-    raise "Unsupported expression for codegen: #{inspect(expr)}"
-  end
-
-  # A name is a data constructor if it starts with an uppercase letter.
-  # Used to distinguish constructors (Just, Nothing, Left, Right, EQ, LT, GT…)
-  # from regular functions when the name is absent from the type environment.
-  defp constructor_name?(name) when is_binary(name) do
-    case name do
-      <<first::utf8, _::binary>> -> first >= ?A and first <= ?Z
-      _ -> false
-    end
-  end
+  defp constructor_name?(name) when is_binary(name), do: match?(<<first::utf8, _::binary>> when first >= ?A and first <= ?Z, name)
+  defp constructor_name?(_), do: false
 
   defp generate_pattern(%AST.BinderVar{name: "_"}), do: {:var, 1, :_}
   defp generate_pattern(%AST.BinderVar{name: "true"}), do: {:atom, 1, :true}
   defp generate_pattern(%AST.BinderVar{name: "false"}), do: {:atom, 1, :false}
+  defp generate_pattern(%AST.BinderVar{name: "num_" <> ns}), do: {:integer, 1, String.to_integer(ns)}
+  defp generate_pattern(%AST.BinderVar{name: "float_" <> fs}), do: {:float, 1, String.to_float(fs)}
+  defp generate_pattern(%AST.BinderVar{name: "str_" <> s}), do: {:string, 1, String.to_charlist(s)}
+  defp generate_pattern(%AST.BinderVar{name: "char_" <> cs}), do: {:integer, 1, String.to_integer(cs)}
   defp generate_pattern(%AST.BinderVar{name: name}), do: {:var, 1, String.capitalize(name) |> String.to_atom()}
-  defp generate_pattern(%AST.BinderConstructor{name: "true", args: []}), do: {:atom, 1, :true}
-  defp generate_pattern(%AST.BinderConstructor{name: "false", args: []}), do: {:atom, 1, :false}
-  defp generate_pattern(%AST.BinderConstructor{name: c_name, args: args}) do
-    erl_pats = Enum.map(args, &generate_pattern/1)
-    {:tuple, 1, [{:atom, 1, String.to_atom(c_name)} | erl_pats]}
+  defp generate_pattern(%AST.ExprVar{name: name}), do: generate_pattern(%AST.BinderVar{name: name})
+  defp generate_pattern(%AST.ExprTuple{elems: es}), do: {:tuple, 1, Enum.map(es, &generate_pattern/1)}
+  defp generate_pattern(%AST.BinderTuple{elems: es}), do: {:tuple, 1, Enum.map(es, &generate_pattern/1)}
+  defp generate_pattern(%AST.BinderConstructor{name: name, args: args}), do: {:tuple, 1, [{:atom, 1, String.to_atom(name)} | Enum.map(args, &generate_pattern/1)]}
+  defp generate_pattern(%AST.ExprApp{} = app) do
+    {f, args} = flatten_app(app, [])
+    case f do %AST.ExprVar{name: cn} -> {:tuple, 1, [{:atom, 1, String.to_atom(cn)} | Enum.map(args, &generate_pattern/1)]} end
   end
+  defp generate_pattern(%AST.ExprList{elems: es, tail: t}), do: Enum.reduce(Enum.reverse(es), if(t, do: generate_pattern(t), else: {nil, 1}), fn e, acc -> {:cons, 1, generate_pattern(e), acc} end)
   defp generate_pattern(%AST.BinderList{head: h, tail: t}) do
-    {:cons, 1, generate_pattern(h), generate_pattern(t)}
+     erl_tail = if(t, do: generate_pattern(t), else: {nil, 1})
+     if h, do: {:cons, 1, generate_pattern(h), erl_tail}, else: erl_tail
   end
-  defp generate_pattern(%AST.BinderTuple{elems: elems}) do
-    {:tuple, 1, Enum.map(elems, &generate_pattern/1)}
-  end
-  defp generate_pattern(pats) when is_list(pats) do
-    # Pattern list (e.g., tuple patterns from guards) — generate as tuple
-    {:tuple, 1, Enum.map(pats, &generate_pattern/1)}
+  defp generate_pattern(l) when is_list(l) do
+    case l do [s] -> generate_pattern(s); m -> {:tuple, 1, Enum.map(m, &generate_pattern/1)} end
   end
   defp generate_pattern(nil), do: {:var, 1, :_}
-  defp generate_pattern(other), do: raise "Unsupported pattern for codegen: #{inspect(other)}"
+  defp generate_pattern(o), do: raise "Unsupported pattern: #{inspect(o)}"
 
   defp find_bound_vars(%AST.BinderVar{name: "_"}, acc), do: acc
-  defp find_bound_vars(%AST.BinderVar{name: name}, acc), do: MapSet.put(acc, name)
-  defp find_bound_vars(%AST.BinderConstructor{args: args}, acc) do
-    Enum.reduce(args, acc, &find_bound_vars/2)
+  defp find_bound_vars(%AST.BinderVar{name: "num_" <> _}, acc), do: acc
+  defp find_bound_vars(%AST.BinderVar{name: "float_" <> _}, acc), do: acc
+  defp find_bound_vars(%AST.BinderVar{name: "str_" <> _}, acc), do: acc
+  defp find_bound_vars(%AST.BinderVar{name: "char_" <> _}, acc), do: acc
+  defp find_bound_vars(%AST.BinderVar{name: n}, acc), do: MapSet.put(acc, n)
+  defp find_bound_vars(%AST.BinderConstructor{args: as}, acc), do: Enum.reduce(as, acc, &find_bound_vars/2)
+  defp find_bound_vars(%AST.BinderTuple{elems: es}, acc), do: Enum.reduce(es, acc, &find_bound_vars/2)
+  defp find_bound_vars(%AST.ExprVar{name: n}, acc), do: if(constructor_name?(n) or String.starts_with?(n, "num_") or String.starts_with?(n, "float_") or String.starts_with?(n, "str_") or String.starts_with?(n, "char_"), do: acc, else: MapSet.put(acc, n))
+  defp find_bound_vars(%AST.ExprTuple{elems: es}, acc), do: Enum.reduce(es, acc, &find_bound_vars/2)
+  defp find_bound_vars(%AST.ExprList{elems: es, tail: t}, acc), do: Enum.reduce(es, if(t, do: find_bound_vars(t, acc), else: acc), &find_bound_vars/2)
+  defp find_bound_vars(%AST.ExprApp{} = app, acc) do
+    {f, args} = flatten_app(app, [])
+    Enum.reduce(args, find_bound_vars(f, acc), &find_bound_vars/2)
   end
-  defp find_bound_vars(%AST.BinderTuple{elems: elems}, acc) do
-    Enum.reduce(elems, acc, &find_bound_vars/2)
-  end
-  defp find_bound_vars(%AST.BinderList{head: h, tail: t}, acc) do
-    find_bound_vars(t, find_bound_vars(h, acc))
-  end
+  defp find_bound_vars(%AST.BinderList{head: h, tail: t}, acc), do: find_bound_vars(h, if(t, do: find_bound_vars(t, acc), else: acc))
   defp find_bound_vars(_, acc), do: acc
 
-  defp flatten_app(%AST.ExprApp{func: f, arg: a}, acc_args) do
-    flatten_app(f, [a | acc_args])
-  end
-  defp flatten_app(f, acc_args) do
-    {f, acc_args}
+  defp flatten_app(%AST.ExprApp{func: f, arg: a}, acc), do: flatten_app(f, [a | acc])
+  defp flatten_app(f, acc), do: {f, acc}
+
+  defp find_dictionary(class_name, env) do
+    prefix = if class_name, do: "Dict_#{class_name}_", else: "Dict_"
+    Enum.find(env, &String.starts_with?(&1, prefix))
   end
 
-  defp find_dictionary(nil, _), do: nil
-  defp find_dictionary(class_name, local_env) do
-    prefix = "Dict_#{class_name}_"
-    Enum.find(local_env, fn name -> String.starts_with?(name, prefix) end)
-  end
-
-  defp generate_static_call(name, mod, 0, args, current_mod) do
-    f_atom = String.to_atom(name)
-    base_call = if mod && mod != current_mod && mod != :local do
-       {:call, 1, {:remote, 1, {:atom, 1, mod}, {:atom, 1, f_atom}}, []}
-    else
-       {:call, 1, {:atom, 1, f_atom}, []}
-    end
-    Enum.reduce(args, base_call, fn arg, acc -> {:call, 1, acc, [arg]} end)
-  end
   defp generate_static_call(name, mod, arity, args, current_mod) do
-    num_provided = length(args)
     f_atom = String.to_atom(name)
-    call_target = if mod && mod != current_mod && mod != :local do
-       {:remote, 1, {:atom, 1, mod}, {:atom, 1, f_atom}}
-    else
-       {:atom, 1, f_atom}
-    end
-
+    target = if mod && mod != current_mod && mod != :local, do: {:remote, 1, {:atom, 1, mod}, {:atom, 1, f_atom}}, else: {:atom, 1, f_atom}
+    num = length(args)
     cond do
-      num_provided == arity ->
-        {:call, 1, call_target, args}
-      num_provided < arity ->
-        needed = arity - num_provided
-        p_args = Enum.map(1..needed, fn i -> {:var, 1, String.to_atom("P#{i}")} end)
-        all_args = args ++ p_args
-        body = {:call, 1, call_target, all_args}
-        clause = {:clause, 1, p_args, [], [body]}
-        {:fun, 1, {:clauses, [clause]}}
-      num_provided > arity ->
-        {arity_args, extra_args} = Enum.split(args, arity)
-        base_call = {:call, 1, call_target, arity_args}
-        Enum.reduce(extra_args, base_call, fn arg, acc -> {:call, 1, acc, [arg]} end)
+      num == arity -> {:call, 1, target, args}
+      num < arity ->
+        vs = Enum.map(1..(arity - num), fn i -> {:var, 1, String.to_atom("P#{i}")} end)
+        {:fun, 1, {:clauses, [{:clause, 1, vs, [], [{:call, 1, target, args ++ vs}]}]}}
+      num > arity ->
+        {ba, ea} = Enum.split(args, arity)
+        Enum.reduce(ea, {:call, 1, target, ba}, fn a, acc -> {:call, 1, acc, [a]} end)
     end
   end
 
-  defp generate_partial_call(name, mod, arity, current_mod) do
-    args = Enum.map(1..arity, fn i -> {:var, 1, String.to_atom("P#{i}")} end)
-
-    call_target = if mod && mod != current_mod && mod != :local do
-      {:remote, 1, {:atom, 1, mod}, {:atom, 1, String.to_atom(name)}}
-    else
-      {:atom, 1, String.to_atom(name)}
-    end
-
-    _clause = {:clause, 1, args, [], [{:call, 1, call_target, args}]}
-    if mod && mod != current_mod && mod != :local do
-       {:fun, 1, {:function, {:atom, 1, mod}, {:atom, 1, String.to_atom(name)}, {:integer, 1, arity}}}
-    else
-       {:fun, 1, {:function, String.to_atom(name), arity}}
+  defp sort_bindings(bs) do
+    names = Enum.reduce(bs, MapSet.new(), fn %AST.DeclValue{name: "_pat", binders: [p]}, a -> find_bound_vars(p, a); %AST.DeclValue{name: n}, a -> MapSet.put(a, n); _, a -> a end)
+    wd = Enum.map(bs, fn %AST.DeclValue{name: n, expr: r} = b -> {b, MapSet.intersection(find_used_vars(r, MapSet.new()), MapSet.delete(names, n))}; o -> {o, MapSet.new()} end)
+    do_sort_bindings(wd, MapSet.new(), [])
+  end
+  defp do_sort_bindings([], _, acc), do: Enum.reverse(acc)
+  defp do_sort_bindings(rem, av, acc) do
+    case Enum.find_index(rem, fn {_, d} -> MapSet.subset?(d, av) end) do
+      nil -> Enum.reverse(acc) ++ Enum.map(rem, &elem(&1, 0))
+      idx ->
+        {b, _} = Enum.at(rem, idx)
+        ns = if(match?(%AST.DeclValue{name: "_pat"}, b), do: find_bound_vars(hd(b.binders), MapSet.new()), else: MapSet.new([b.name]))
+        do_sort_bindings(List.delete_at(rem, idx), MapSet.union(av, ns), [b | acc])
     end
   end
 
+  defp find_used_vars(%AST.ExprVar{name: n}, acc), do: if(constructor_name?(n), do: acc, else: MapSet.put(acc, n))
+  defp find_used_vars(%AST.ExprApp{func: f, arg: a}, acc), do: find_used_vars(a, find_used_vars(f, acc))
+  defp find_used_vars(%AST.ExprLam{binder: b, body: bo}, acc), do: MapSet.union(acc, MapSet.difference(find_used_vars(bo, MapSet.new()), find_bound_vars(b, MapSet.new())))
+  defp find_used_vars(%AST.ExprLet{bindings: bs, body: bo}, acc) do
+    ru = Enum.reduce(bs, MapSet.new(), fn %AST.DeclValue{expr: r}, a -> find_used_vars(r, a); _, a -> a end)
+    MapSet.union(acc, MapSet.union(ru, find_used_vars(bo, MapSet.new())))
+  end
+  defp find_used_vars(%AST.ExprTuple{elems: es}, acc), do: Enum.reduce(es, acc, &find_used_vars/2)
+  defp find_used_vars(%AST.ExprList{elems: es, tail: t}, acc), do: Enum.reduce(es, if(t, do: find_used_vars(t, acc), else: acc), &find_used_vars/2)
+  defp find_used_vars(%AST.ExprCase{exprs: ts, branches: bs}, acc) do
+    acc1 = Enum.reduce(ts, acc, &find_used_vars/2)
+    Enum.reduce(bs, acc1, fn {p, b}, a -> MapSet.union(a, MapSet.difference(find_used_vars(b, MapSet.new()), find_bound_vars(p, MapSet.new()))) end)
+  end
+  defp find_used_vars(%AST.ExprIf{cond: c, then_br: t, else_br: e}, acc), do: find_used_vars(e, find_used_vars(t, find_used_vars(c, acc)))
+  defp find_used_vars(_, acc), do: acc
 end

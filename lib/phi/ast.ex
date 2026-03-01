@@ -112,7 +112,7 @@ defmodule Phi.AST do
   end
 
   defmodule DeclInstance do
-    defstruct [:name, :class, :types, :members]
+    defstruct [:name, :class, :types, :members, :constraints]
   end
 
   defmodule ExprCase do

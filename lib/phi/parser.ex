@@ -302,7 +302,7 @@ defmodule Phi.Parser do
   defp parse_instance_with_where(tokens) do
     case parse_type(tokens) do
       {:ok, type, rest} ->
-        {_ctx, t} = case type do
+        {ctx, t} = case type do
           %AST.TypeConstrained{constraints: c, type: inner} -> {c, inner}
           _ -> {[], type}
         end
@@ -312,10 +312,10 @@ defmodule Phi.Parser do
               [{:where, _, _}, {:left_brace, _, _} | rest2] ->
                 case parse_decls(rest2, []) do
                   {:ok, members, rest3} ->
-                    {:ok, %AST.DeclInstance{name: "anon", class: class_name, types: types, members: Enum.reverse(members)}, rest3}
+                    {:ok, %AST.DeclInstance{name: "anon", class: class_name, types: types, members: Enum.reverse(members), constraints: ctx}, rest3}
                   err -> err
                 end
-              _ -> {:ok, %AST.DeclInstance{name: "anon", class: class_name, types: types, members: []}, rest}
+              _ -> {:ok, %AST.DeclInstance{name: "anon", class: class_name, types: types, members: [], constraints: ctx}, rest}
             end
           _ -> {:error, :invalid_instance_header, rest}
         end

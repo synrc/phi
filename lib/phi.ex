@@ -5,13 +5,14 @@ defmodule Phi do
   """
 
   def compile_file(path, out_dir \\ ".") do
-    with {:ok, bin} <- File.read(path),
-         {:ok, tokens} <- Phi.Lexer.lex(bin),
+    with {:ok, source} <- File.read(path),
+         {:ok, tokens} <- Phi.Lexer.lex(source),
          resolved = Phi.Layout.resolve(tokens),
          {:ok, ast} <- Phi.Parser.parse(resolved),
          desugared_ast = Phi.Desugar.desugar(ast),
-         {:ok, forms} <- Phi.Codegen.generate(desugared_ast),
-         {:ok, mod_name, binary} <- :compile.forms(forms, [:return_errors]) do
+         env = Phi.Typechecker.build_env(desugared_ast, Phi.Typechecker.Env.new()),
+         {:ok, forms} <- Phi.Codegen.generate(desugared_ast, env),
+         {:ok, mod_name, binary} <- :compile.forms(forms, [:verbose, :report_errors]) do
 
       out_path = Path.join(out_dir, "#{mod_name}.beam")
       File.write!(out_path, binary)

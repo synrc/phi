@@ -7,16 +7,29 @@ defmodule Phi.Typechecker do
 
   defmodule Env do
     @moduledoc "Typing Environment mapping names to Polytypes"
-    defstruct bindings: %{}
+    defstruct bindings: %{}, aliases: %{}, classes: %{}, instances: %{}, member_to_class: %{}, term_aliases: %{}
 
     def new(), do: %Env{}
 
-    def extend(%Env{bindings: b} = env, name, scheme) do
-      %{env | bindings: Map.put(b, name, scheme)}
+    def extend(%Env{bindings: b} = env, module, name, scheme) do
+      # Store as {module, scheme}
+      %{env | bindings: Map.put(b, name, {module, scheme})}
+    end
+
+    def add_alias(%Env{aliases: a} = env, name, type) do
+      %{env | aliases: Map.put(a, name, type)}
     end
 
     def lookup(%Env{bindings: b}, name) do
       Map.fetch(b, name)
+    end
+
+    def lookup_alias(%Env{aliases: a}, name) do
+      Map.fetch(a, name)
+    end
+
+    def resolve_term_alias(%Env{term_aliases: ta}, name) do
+      Map.get(ta, name, name)
     end
   end
 
@@ -38,56 +51,163 @@ defmodule Phi.Typechecker do
   end
 
   @doc "Builds an initial typing environment from a list of AST declarations"
-  def build_env(decls, env \\ Env.new()) do
+  def build_env(%AST.Module{name: mod_name, declarations: decls}, env) do
+    # Convention: module Data.List -> 'data_list' (matches Codegen convention)
+    erl_mod = mod_name |> String.downcase() |> String.replace(".", "_") |> String.to_atom()
+
     Enum.reduce(decls, env, fn
       %AST.DeclTypeSignature{name: name, type: ast_type}, acc ->
-        # We put the type scheme into the environment
-        type = ast_to_type(ast_type)
+        type = ast_to_type(ast_type, acc)
         scheme = case type do
           %Forall{} = s -> s
-          # If it has no forall, it's just a monotype, but we wrap it in an empty scheme
           t -> %Forall{vars: [], type: t}
         end
-        Env.extend(acc, name, scheme)
+        Env.extend(acc, erl_mod, name, scheme)
+
+      %AST.DeclForeign{name: name, type: ast_type}, acc ->
+        type = ast_to_type(ast_type, acc)
+        scheme = case type do
+          %Forall{} = s -> s
+          t -> %Forall{vars: [], type: t}
+        end
+        Env.extend(acc, erl_mod, name, scheme)
+
+      %AST.DeclTypeAlias{name: name, type: ast_type}, acc ->
+        type = ast_to_type(ast_type, acc)
+        Env.add_alias(acc, name, type)
+
+      %AST.DeclClass{name: name, args: args, members: members}, acc ->
+        # args here are [%AST.TypeVar{name: "a"}] etc.
+        # members are [%AST.DeclTypeSignature{name: "eq", type: ...}]
+
+        # 1. Register class metadata
+        arg_names = Enum.map(args, fn %AST.TypeVar{name: n} -> n end)
+        acc_with_class = %{acc | classes: Map.put(acc.classes, name, %{args: arg_names, members: members})}
+
+        # 2. Add class-constrained signatures for each member
+        Enum.reduce(members, acc_with_class, fn
+          %AST.DeclTypeSignature{name: m_name, type: m_type}, env_acc ->
+            # Convert AST type to internal type
+            _base_type = ast_to_type(m_type, env_acc)
+
+            # Constraint: ClassName args...
+            # We need to construct the constraint part.
+            constraint = if args == [] do
+               %AST.TypeConstructor{name: name}
+            else
+               Enum.reduce(args, %AST.TypeConstructor{name: name}, fn arg, f -> %AST.TypeApp{func: f, arg: %AST.TypeVar{name: arg}} end)
+            end
+
+            constrained_type = %AST.TypeConstrained{constraints: [constraint], type: m_type}
+
+            # Forall over class args + any local vars in m_type
+            final_type = ast_to_type(constrained_type, env_acc)
+            all_fvs = free_vars(final_type) |> MapSet.to_list()
+            scheme = %Forall{vars: all_fvs, type: final_type}
+
+            env_with_m = %{env_acc | member_to_class: Map.put(env_acc.member_to_class, m_name, name)}
+            Env.extend(env_with_m, erl_mod, m_name, scheme)
+          _, env_acc -> env_acc
+        end)
+
+      %AST.DeclInstance{class: class_name, types: types, members: members, constraints: constraints}, acc ->
+        # types are [%AST.TypeConstructor{name: "Int"}] etc.
+        # Registration of instances
+        # IO.inspect(types, label: "DeclInstance types")
+        itypes = Enum.map(types, &ast_to_type(&1, acc))
+        iconstraints = Enum.map(constraints, &ast_to_type(&1, acc))
+
+        # We need a name for the dictionary function.
+        # Convention: dict_ClassName_TypeName1_TypeName2
+        type_suffixes = Enum.map(itypes, fn
+          %TCon{name: n} -> n
+          _ -> "Var"
+        end)
+        dict_name = Enum.join(["dict", class_name | type_suffixes], "_")
+
+        instance_info = %{
+          types: itypes,
+          dict_name: dict_name,
+          members: members, # [%AST.DeclValue{name: "eq", expr: ...}]
+          constraints: iconstraints
+        }
+
+        new_instances = Map.update(acc.instances, class_name, [instance_info], fn existing ->
+          [instance_info | existing]
+        end)
+
+        %{acc | instances: new_instances}
+
+      %AST.DeclFixity{op: op, name: name}, acc ->
+        if name do
+          %{acc | term_aliases: Map.put(acc.term_aliases, op, name)}
+        else
+          acc
+        end
 
       %AST.DeclData{name: data_name, args: args, constructors: constructors}, acc ->
-        # args are %AST.TypeVar{name: "a"}, etc.
-        # So the result type for the constructor should be `TApp(TApp(Tuple, a), b)`
-        type_vars = Enum.map(args, fn arg -> %TVar{id: arg.name} end)
+        # args are currently strings from Phi.Parser.parse_type_vars
+        type_vars = Enum.map(args, fn arg_name -> %TVar{id: arg_name} end)
 
         ret_type = Enum.reduce(type_vars, %TCon{name: data_name}, fn tv, acc_type ->
           %TApp{func: acc_type, arg: tv}
         end)
 
         Enum.reduce(constructors, acc, fn {c_name, c_args}, env_acc ->
-           # c_args are %AST.TypeVar{name: "a"}, %AST.TypeVar{name: "b"}
-           # So the constructor function is `a -> b -> Tuple a b`
-           c_arg_types = Enum.map(c_args, &ast_to_type/1)
+           c_arg_types = Enum.map(c_args, &ast_to_type(&1, env_acc))
 
            con_type = Enum.reduce(Enum.reverse(c_arg_types), ret_type, fn t_arg, acc_t ->
              Phi.Type.arrow(t_arg, acc_t)
            end)
 
-           var_names = Enum.map(args, & &1.name)
-           Env.extend(env_acc, c_name, %Forall{vars: var_names, type: con_type})
+           var_names = Enum.map(args, fn arg_name -> arg_name end)
+           Env.extend(env_acc, erl_mod, c_name, %Forall{vars: var_names, type: con_type})
         end)
       _, acc -> acc
     end)
   end
 
   @doc "Converts an AST type into a Phi.Type representation"
-  def ast_to_type(%AST.TypeConstructor{name: name}), do: %TCon{name: name}
-  def ast_to_type(%AST.TypeVar{name: name}), do: %TVar{id: name} # Using string ID for bound variables initially
-  def ast_to_type(%AST.TypeArrow{domain: d, codomain: c}) do
-    Phi.Type.arrow(ast_to_type(d), ast_to_type(c))
+  def ast_to_type(ast, env \\ Env.new())
+  def ast_to_type(%AST.TypeConstructor{name: name}, env) do
+    case Env.lookup_alias(env, name) do
+      {:ok, type} -> type
+      :error -> %TCon{name: name}
+    end
   end
-  def ast_to_type(%AST.TypeApp{func: f, arg: a}) do
-    %TApp{func: ast_to_type(f), arg: ast_to_type(a)}
+  def ast_to_type(%AST.TypeVar{name: name}, _env), do: %TVar{id: name} # Using string ID for bound variables initially
+  def ast_to_type(%AST.TypeTuple{elems: elems}, env) do
+     %TApp{
+       func: %TCon{name: "Tuple#{length(elems)}"},
+       arg: Enum.map(elems, &ast_to_type(&1, env))
+     }
   end
-  def ast_to_type(%AST.TypeForall{vars: vars, type: t}) do
-    var_names = Enum.map(vars, & &1.name)
-    %Forall{vars: var_names, type: ast_to_type(t)}
+  def ast_to_type(%AST.TypeArrow{domain: d, codomain: c}, env) do
+    Phi.Type.arrow(ast_to_type(d, env), ast_to_type(c, env))
   end
+  def ast_to_type(%AST.TypeApp{func: f, arg: a}, env) do
+    %TApp{func: ast_to_type(f, env), arg: ast_to_type(a, env)}
+  end
+  def ast_to_type(%AST.TypeConstrained{constraints: [c | rest], type: t}, env) do
+    # Currently we only support single constraint in internal Type.TConstrained
+    # but AST can have multiple. We nest them if needed.
+    inner = if rest == [], do: ast_to_type(t, env), else: ast_to_type(%AST.TypeConstrained{constraints: rest, type: t}, env)
+
+    case flatten_type_app(c, []) do
+      [%AST.TypeConstructor{name: name} | args] ->
+        %Phi.Type.TConstrained{class_name: name, args: Enum.map(args, &ast_to_type(&1, env)), type: inner}
+      _ -> ast_to_type(t, env) # Fallback
+    end
+  end
+
+  def ast_to_type(%AST.TypeForall{vars: vars, type: t}, env) do
+    # vars are currently strings from Phi.Parser.parse_type_vars
+    var_names = Enum.map(vars, fn name -> name end)
+    %Forall{vars: var_names, type: ast_to_type(t, env)}
+  end
+
+  defp flatten_type_app(%AST.TypeApp{func: f, arg: a}, acc), do: flatten_type_app(f, [a | acc])
+  defp flatten_type_app(t, acc), do: [t | acc]
 
   # -- Algorithm W --
 
@@ -106,7 +226,7 @@ defmodule Phi.Typechecker do
       {:ok, type_binder, bound_vars, state2} ->
         # Extend environment with the bound variables from pattern matching
         env2 = Enum.reduce(bound_vars, env, fn {name, t}, acc_env ->
-          Env.extend(acc_env, name, %Forall{vars: [], type: t})
+          Env.extend(acc_env, :local, name, %Forall{vars: [], type: t})
         end)
         case do_infer(env2, state2, body) do
           {:ok, t_body, state3} ->
@@ -135,10 +255,64 @@ defmodule Phi.Typechecker do
       {:ok, t_expr, state2} ->
         # Generalize t_expr
         scheme = generalize(env, state2.subst, t_expr)
-        env2 = Env.extend(env, name, scheme)
+        env2 = Env.extend(env, :local, name, scheme)
         do_infer(env2, state2, body)
       err -> err
     end
+  end
+  defp do_infer(env, state, %AST.ExprCase{exprs: target_exprs, branches: branches}) do
+    # 1. Infer types of target expressions
+    {t_targets, state2} = Enum.reduce(target_exprs, {[], state}, fn expr, {ts, st} ->
+      case do_infer(env, st, expr) do
+        {:ok, t, st2} -> {[t | ts], st2}
+        err -> throw err
+      end
+    end)
+    t_targets = Enum.reverse(t_targets)
+
+    # 2. Result type for the whole case
+    t_ret = %TVar{id: state2.next_id}
+    state3 = %{state2 | next_id: state2.next_id + 1}
+
+    # 3. Infer each branch
+    state4 = Enum.reduce(branches, state3, fn {patterns, body}, st_acc ->
+      # Patterns might bind new variables
+      {t_patterns, bound_vars, st_next} = Enum.reduce(patterns, {[], %{}, st_acc}, fn pat, {t_pats, b_vars, st_p} ->
+        case infer_binder(env, st_p, pat) do
+          {:ok, t_pat, new_bounds, st_p2} ->
+            {[t_pat | t_pats], Map.merge(b_vars, new_bounds), st_p2}
+          err -> throw err
+        end
+      end)
+      t_patterns = Enum.reverse(t_patterns)
+
+      # Unify each pattern type with corresponding target type
+      st_next2 = Enum.zip(t_targets, t_patterns) |> Enum.reduce(st_next, fn {t_target, t_pat}, st_unify ->
+        case unify(t_target, t_pat, st_unify) do
+          {:ok, st_unify2} -> st_unify2
+          err -> throw err
+        end
+      end)
+
+      # Extend environment and infer body
+      env_branch = Enum.reduce(bound_vars, env, fn {name, t}, acc_env ->
+        Env.extend(acc_env, :local, name, %Forall{vars: [], type: t})
+      end)
+
+      case do_infer(env_branch, st_next2, body) do
+        {:ok, t_body, st_next3} ->
+          # Unify body type with t_ret
+          case unify(t_body, t_ret, st_next3) do
+            {:ok, st_next4} -> st_next4
+            err -> throw err
+          end
+        err -> throw err
+      end
+    end)
+
+    {:ok, apply_subst(state4.subst, t_ret), state4}
+  catch
+    err -> err
   end
   defp do_infer(_env, _state, expr), do: {:error, "Unsupported expression for inference: #{inspect(expr)}"}
 

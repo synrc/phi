@@ -19,21 +19,16 @@ defmodule Phi.Compiler do
         erl_path = String.replace(source_path, ".hm", ".erl")
         if File.exists?(erl_path) do
           case :compile.file(String.to_charlist(erl_path), [:return_errors, :debug_info, {:outdir, ~c"ebin"}]) do
-            {:ok, mod} ->
-              IO.puts("Compiled foreign module: #{mod}")
-              :code.purge(mod)
-              :code.load_file(mod)
+            {:ok, erlmod} ->
+              IO.puts("    Compiled foreign module: #{erlmod}")
+              :code.purge(erlmod)
+              :code.load_file(erlmod)
             {:error, err, _warn} -> IO.puts("Warning: foreign compile failed: #{inspect(err)}")
           end
         end
       end
 
-      # Enrich environment with declarations from this module
       new_env = Phi.Typechecker.build_env(desugared_ast, env)
-
-      # We could typecheck each expression here, but for integration
-      # we just proceed to codegen if parsing succeeded.
-      # A real compiler would throw on type errors.
 
       case Phi.Codegen.generate(desugared_ast, new_env) do
         {:ok, forms} ->

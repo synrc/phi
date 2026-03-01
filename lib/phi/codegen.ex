@@ -480,20 +480,19 @@ defmodule Phi.Codegen do
 
   defp generate_dispatch_call(real_name, mod, erl_args, class_name, global_env, current_mod) do
     instances = Map.get(global_env.instances, class_name, [])
-    dispatch_var = :"DDispatch__"
     n = length(erl_args)
 
     # Try each arg position (0 first, then 1, ...) — first position with matching instances wins.
-    # Monad bind(m, k): position 0 (m :: IO a = fun/0) matches before position 1 (k = fun/1).
-    # Functor map(f, a): position 0 (f = fun/1) has no guard; position 1 (a :: IO a) matches.
     result = if n > 0 do
       Enum.find_value(0..(n - 1), fn dispatch_idx ->
         dispatch_target = Enum.at(erl_args, dispatch_idx)
-        args_with_var = List.replace_at(erl_args, dispatch_idx, {:var, 1, dispatch_var})
+        dispatch_var_atom = :"DDispatch__#{System.unique_integer([:positive])}"
+        dispatch_var = {:var, 1, dispatch_var_atom}
+        args_with_var = List.replace_at(erl_args, dispatch_idx, dispatch_var)
 
         clauses = Enum.flat_map(instances, fn
           %{types: [type | _], dict_name: dn, mod: dict_mod} when is_atom(dict_mod) and not is_nil(dict_mod) ->
-            guard = erlang_type_guard(type, {:var, 1, dispatch_var})
+            guard = erlang_type_guard(type, dispatch_var)
             if guard do
               dict_call = {:call, 1, {:remote, 1, {:atom, 1, dict_mod}, {:atom, 1, String.to_atom(dn)}}, []}
               accessor = if mod && mod != current_mod do
@@ -501,8 +500,7 @@ defmodule Phi.Codegen do
               else
                 {:call, 1, {:atom, 1, String.to_atom(real_name)}, [dict_call]}
               end
-              applied = Enum.reduce(args_with_var, accessor, fn arg, acc -> {:call, 1, acc, [arg]} end)
-              [{:clause, 1, [{:var, 1, dispatch_var}], [[guard]], [applied]}]
+              [{:clause, 1, [dispatch_var], [[guard]], [accessor]}]
             else
               []
             end
@@ -510,10 +508,16 @@ defmodule Phi.Codegen do
         end)
 
         if clauses != [] do
-          error_clause = {:clause, 1, [{:var, 1, dispatch_var}], [],
+          error_clause = {:clause, 1, [dispatch_var], [],
             [{:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :error}},
               [{:tuple, 1, [{:atom, 1, :no_instance}, {:atom, 1, String.to_atom(class_name)}]}]}]}
-          {:case, 1, dispatch_target, clauses ++ [error_clause]}
+
+          match_expr = {:match, 1, dispatch_var, dispatch_target}
+          case_expr = {:case, 1, dispatch_var, clauses ++ [error_clause]}
+          applied = Enum.reduce(args_with_var, case_expr, fn arg, acc -> {:call, 1, acc, [arg]} end)
+
+          # Erlang requires blocks to return the final application
+          {:block, 1, [match_expr, applied]}
         else
           nil
         end

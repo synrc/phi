@@ -64,10 +64,12 @@ defmodule Mix.Tasks.Phi.Test do
             {rem, next_env, ok + 1}
 
           {:error, reason} ->
-            {rem ++ [{file, reason}], acc_env, ok}
+            formatted = format_reason(reason)
+            {rem ++ [{file, formatted}], acc_env, ok}
 
           other ->
-            {rem ++ [{file, other}], acc_env, ok}
+            formatted = format_reason(other)
+            {rem ++ [{file, formatted}], acc_env, ok}
         end
       end)
 
@@ -77,8 +79,8 @@ defmodule Mix.Tasks.Phi.Test do
     cond do
       successes == 0 ->
         IO.puts("\n  No progress in pass #{pass}. Giving up on #{length(failing)} files:")
-        Enum.each(failing, fn {file, reason} ->
-          IO.puts("    FAIL #{Path.relative_to_cwd(file)}: #{format_reason(reason)}")
+        Enum.each(failing, fn {file, reason_str} ->
+          IO.puts("    FAIL #{Path.relative_to_cwd(file)}: #{reason_str}")
         end)
         new_env
 
@@ -106,7 +108,15 @@ defmodule Mix.Tasks.Phi.Test do
   end
 
   defp format_reason(reason) do
-    inspect(reason) |> String.slice(0, 120)
+    try do
+      cond do
+        is_exception(reason) -> Exception.message(reason)
+        is_tuple(reason) and tuple_size(reason) > 0 -> "Error tuple: #{inspect(elem(reason, 0))}"
+        true -> "Unknown error"
+      end
+    rescue
+      _ -> "Formatting error failed"
+    end
   end
 
   defp run_test_main do

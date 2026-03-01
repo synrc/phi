@@ -28,6 +28,10 @@
 * PureScript Team
 * Hamler Team
 
+## Author
+
+* Ihor Horobets
+
 ## License
 
 DHARMA LICENSE

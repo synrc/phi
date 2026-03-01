@@ -692,6 +692,8 @@ defmodule Phi.Parser do
         case parse_comma_separated(rest, &parse_expr/1) do
           {:ok, [e], [{:right_paren, _, _} | rest2]} -> {:ok, e, rest2}
           {:ok, exprs, [{:right_paren, _, _} | rest2]} -> {:ok, %AST.ExprTuple{elems: exprs}, rest2}
+          {:ok, _, [{tok, line, col} | _]} -> {:error, :expected_right_paren_found, {tok, line, col}}
+          {:ok, _, []} -> {:error, :expected_right_paren_eof}
           err -> err
         end
     end
@@ -728,8 +730,13 @@ defmodule Phi.Parser do
   defp parse_case_branches([{:right_brace, _, _} | rest], acc), do: {:ok, Enum.reverse(acc), rest}
   defp parse_case_branches(tokens, acc) do
     case parse_case_branch(tokens) do
-      {:ok, branch, [{:semicolon, _, _} | rest]} -> parse_case_branches(rest, [branch | acc])
-      {:ok, branch, [{:right_brace, _, _} | _] = rest} -> parse_case_branches(rest, [branch | acc])
+      {:ok, branch, rest} ->
+        case rest do
+          [{:semicolon, _, _} | rest2] -> parse_case_branches(rest2, [branch | acc])
+          [{:right_brace, _, _} | _] -> parse_case_branches(rest, [branch | acc])
+          [{tok, line, col} | _] -> {:error, :expected_semicolon_or_brace_in_case, {tok, line, col}}
+          [] -> {:ok, Enum.reverse([branch | acc]), []}
+        end
       err -> err
     end
   end
@@ -842,7 +849,7 @@ defmodule Phi.Parser do
       _ ->
         case parse_comma_separated(rest, &parse_binder/1) do
           {:ok, [b], [{:right_paren, _, _} | rest2]} -> {:ok, b, rest2}
-          {:ok, _binders, [{:right_paren, _, _} | rest2]} -> {:ok, %AST.BinderTuple{elems: []}, rest2}
+          {:ok, binders, [{:right_paren, _, _} | rest2]} -> {:ok, %AST.BinderTuple{elems: binders}, rest2}
           err -> err
         end
     end

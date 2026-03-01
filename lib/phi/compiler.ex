@@ -10,7 +10,7 @@ defmodule Phi.Compiler do
 
     with {:ok, tokens} <- Phi.Lexer.lex(source_code),
          resolved <- Phi.Layout.resolve(tokens),
-         {:ok, ast} <- Phi.Parser.parse(resolved),
+         {:ok, ast} <- normalize_parse(Phi.Parser.parse(resolved)),
          desugared_ast <- Phi.Desugar.desugar(ast) do
 
       # Compile companion Erlang file if it exists
@@ -48,6 +48,13 @@ defmodule Phi.Compiler do
       end
     end
   end
+
+  # Accept both {:ok, ast} and {:ok, ast, rest} from the parser.
+  # A non-empty rest means the parser couldn't consume all tokens (likely
+  # unsupported syntax), but we still try to compile what was parsed.
+  defp normalize_parse({:ok, ast}), do: {:ok, ast}
+  defp normalize_parse({:ok, ast, _rest}), do: {:ok, ast}
+  defp normalize_parse(err), do: err
 
   def load_module(mod, bin) do
     :code.load_binary(mod, ~c"#{mod}.beam", bin)

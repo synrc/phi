@@ -139,7 +139,36 @@ defmodule Phi.Codegen do
     {:function, 1, dict_name, length(erl_args), [clause]}
   end
 
-  # Ignore types for code generation right now (they are erased at runtime)
+  # Generate constructor functions for data types.
+  # e.g. data Maybe a = Nothing | Just a
+  # generates: 'Nothing'() -> {'Nothing'}. and 'Just'(X1) -> {'Just', X1}.
+  defp generate_decl(%AST.DeclData{constructors: constructors}, _current_mod, _foreign_mod, _env) do
+    fns = Enum.map(constructors, fn {c_name, c_args} ->
+      arity = length(c_args)
+      fn_atom = String.to_atom(c_name)
+      tag = {:atom, 1, fn_atom}
+      if arity == 0 do
+        body = {:tuple, 1, [tag]}
+        {:function, 1, fn_atom, 0, [{:clause, 1, [], [], [body]}]}
+      else
+        arg_vars = Enum.map(1..arity, fn i -> {:var, 1, String.to_atom("X#{i}")} end)
+        body = {:tuple, 1, [tag | arg_vars]}
+        {:function, 1, fn_atom, arity, [{:clause, 1, arg_vars, [], [body]}]}
+      end
+    end)
+    {:multi, fns}
+  end
+
+  # Newtype constructor: treated as a 1-arg data constructor for compatibility.
+  defp generate_decl(%AST.DeclNewtype{constructor: c_name}, _current_mod, _foreign_mod, _env) do
+    fn_atom = String.to_atom(c_name)
+    tag = {:atom, 1, fn_atom}
+    arg = {:var, 1, :X1}
+    body = {:tuple, 1, [tag, arg]}
+    {:function, 1, fn_atom, 1, [{:clause, 1, [arg], [], [body]}]}
+  end
+
+  # Ignore types, fixity, etc. for code generation (erased at runtime)
   defp generate_decl(_, _, _, _), do: nil
 
   defp type_arity(%Type.TApp{func: %Type.TApp{func: %Type.TCon{name: "->"}}, arg: c}), do: 1 + type_arity(c)
@@ -205,23 +234,11 @@ defmodule Phi.Codegen do
   defp flatten_type_app(%AST.TypeApp{func: f, arg: a}, acc), do: flatten_type_app(f, [a | acc])
   defp flatten_type_app(t, acc), do: [t | acc]
 
-  defp extract_args(%AST.ExprLam{binder: %AST.BinderVar{name: arg_name}, body: body}, env, acc_args) do
-    erl_arg = {:var, 1, String.capitalize(arg_name) |> String.to_atom()}
-    extract_args(body, MapSet.put(env, arg_name), acc_args ++ [erl_arg])
-  end
-  defp extract_args(%AST.ExprLam{binder: %AST.BinderConstructor{name: c_name, args: c_args}, body: body}, env, acc_args) do
-    arg_vars = Enum.map(c_args, fn
-      %AST.BinderVar{name: arg_name} ->
-        {:var, 1, String.capitalize(arg_name) |> String.to_atom()}
-      other ->
-        generate_pattern(other)
-    end)
-    env2 = Enum.reduce(c_args, env, fn
-      %AST.BinderVar{name: arg_name}, acc -> MapSet.put(acc, arg_name)
-      _, acc -> acc
-    end)
-    erl_tuple_pattern = {:tuple, 1, [{:atom, 1, String.to_atom(c_name)} | arg_vars]}
-    extract_args(body, env2, acc_args ++ [erl_tuple_pattern])
+  defp extract_args(%AST.ExprLam{binder: binder, body: body}, env, acc_args) do
+    erl_pat = generate_pattern(binder)
+    new_vars = find_bound_vars(binder, MapSet.new())
+    env2 = MapSet.union(env, new_vars)
+    extract_args(body, env2, acc_args ++ [erl_pat])
   end
   defp extract_args(expr, env, acc_args) do
     case try_detect_ffi(expr) do
@@ -271,6 +288,14 @@ defmodule Phi.Codegen do
         "unit" -> {:atom, 1, :unit}
         _ ->
           {mod, scheme, real_name} = get_info(name, global_env)
+
+          # Constructor fallback: when the defining module failed to compile,
+          # scheme is nil but the name is still a constructor (uppercase).
+          # Inline as a tuple to match pattern-match representation.
+          if scheme == nil && constructor_name?(real_name) do
+            {:tuple, 1, [{:atom, 1, String.to_atom(real_name)}]}
+          else
+
           {num_dicts, num_args} = if scheme, do: split_arity(scheme), else: {0, 0}
           total_arity = num_dicts + num_args
 
@@ -303,17 +328,24 @@ defmodule Phi.Codegen do
              end
           else
             if total_arity == 0 do
-              # Constant or variable
-              if mod && mod != current_mod do
-                {:remote, 1, {:atom, 1, mod}, {:atom, 1, String.to_atom(real_name)}}
+              if constructor_name?(real_name) do
+                # 0-arg data constructor: call the constructor function so it
+                # returns the correct tuple representation e.g. {'Nothing'}.
+                generate_static_call(real_name, mod, 0, [], current_mod)
               else
-                {:atom, 1, String.to_atom(real_name)}
+                # Non-constructor 0-arity reference (constants, foreign refs).
+                if mod && mod != current_mod do
+                  {:remote, 1, {:atom, 1, mod}, {:atom, 1, String.to_atom(real_name)}}
+                else
+                  {:atom, 1, String.to_atom(real_name)}
+                end
               end
             else
               # Partial application (0 args provided)
               generate_static_call(real_name, mod, total_arity, [], current_mod)
             end
           end
+          end  # end nil-scheme constructor fallback
       end
     end
   end
@@ -338,6 +370,12 @@ defmodule Phi.Codegen do
           Enum.reduce(erl_args, erl_f, fn arg, acc -> {:call, 1, acc, [arg]} end)
         else
           {mod, scheme, real_name} = get_info(name, global_env)
+
+          # Constructor fallback: inline as tuple when scheme is unknown.
+          if scheme == nil && constructor_name?(real_name) do
+            {:tuple, 1, [{:atom, 1, String.to_atom(real_name)} | erl_args]}
+          else
+
           {num_dicts, num_args} = if scheme, do: split_arity(scheme), else: {0, 0}
           total_arity = num_dicts + num_args
 
@@ -377,6 +415,7 @@ defmodule Phi.Codegen do
           else
              generate_static_call(real_name, mod, total_arity, erl_args, current_mod)
           end
+          end  # end nil-scheme constructor fallback
         end
       other ->
         erl_f = generate_expr(other, local_env, global_env, current_mod)
@@ -384,13 +423,32 @@ defmodule Phi.Codegen do
     end
   end
 
-  defp generate_expr(%AST.ExprLet{bindings: [%AST.DeclValue{name: name, expr: val_expr}], body: body}, local_env, global_env, current_mod) do
-    erl_var = {:var, 1, String.capitalize(name) |> String.to_atom()}
-    erl_val = generate_expr(val_expr, local_env, global_env, current_mod)
-    local_env2 = MapSet.put(local_env, name)
-    erl_body = generate_expr(body, local_env2, global_env, current_mod)
-    match_expr = {:match, 1, erl_var, erl_val}
-    {:block, 1, [match_expr, erl_body]}
+  defp generate_expr(%AST.ExprLet{bindings: bindings, body: body}, local_env, global_env, current_mod) do
+    # Compile each binding as a match expression, accumulating the local env.
+    {match_exprs, final_env} =
+      Enum.reduce(bindings, {[], local_env}, fn
+        # Pattern binding: let <pat> = rhs → generate as direct Erlang match
+        %AST.DeclValue{name: "_pat", binders: [pat], expr: rhs}, {acc_stmts, acc_env} ->
+          erl_pat = generate_pattern(pat)
+          erl_rhs = generate_expr(rhs, acc_env, global_env, current_mod)
+          bound = find_bound_vars(pat, MapSet.new())
+          {acc_stmts ++ [{:match, 1, erl_pat, erl_rhs}], MapSet.union(acc_env, bound)}
+        %AST.DeclValue{name: name, binders: [], expr: val_expr}, {acc_stmts, acc_env} ->
+          erl_var = {:var, 1, String.capitalize(name) |> String.to_atom()}
+          erl_val = generate_expr(val_expr, acc_env, global_env, current_mod)
+          {acc_stmts ++ [{:match, 1, erl_var, erl_val}], MapSet.put(acc_env, name)}
+        %AST.DeclValue{name: name, binders: binders, expr: val_expr}, {acc_stmts, acc_env} ->
+          lam = Enum.reduce(Enum.reverse(binders), val_expr, fn b, acc ->
+            %AST.ExprLam{binder: b, body: acc}
+          end)
+          erl_var = {:var, 1, String.capitalize(name) |> String.to_atom()}
+          erl_val = generate_expr(lam, acc_env, global_env, current_mod)
+          {acc_stmts ++ [{:match, 1, erl_var, erl_val}], MapSet.put(acc_env, name)}
+        _other, acc -> acc
+      end)
+
+    erl_body = generate_expr(body, final_env, global_env, current_mod)
+    {:block, 1, match_exprs ++ [erl_body]}
   end
 
   defp generate_expr(%AST.ExprCase{exprs: exprs, branches: branches}, local_env, global_env, current_mod) do
@@ -400,12 +458,13 @@ defmodule Phi.Codegen do
       multiple -> {:tuple, 1, multiple}
     end
     erl_clauses = Enum.map(branches, fn {patterns, body} ->
-      erl_pats = Enum.map(patterns, &generate_pattern/1)
+      patterns_list = if is_list(patterns), do: patterns, else: [patterns]
+      erl_pats = Enum.map(patterns_list, &generate_pattern/1)
       erl_pat = case erl_pats do
         [single_p] -> single_p
         multiple_p -> {:tuple, 1, multiple_p}
       end
-      new_vars = Enum.reduce(patterns, MapSet.new(), &find_bound_vars/2)
+      new_vars = Enum.reduce(patterns_list, MapSet.new(), &find_bound_vars/2)
       local_env2 = MapSet.union(local_env, new_vars)
       erl_body = generate_expr(body, local_env2, global_env, current_mod)
       {:clause, 1, [erl_pat], [], [erl_body]}
@@ -438,7 +497,22 @@ defmodule Phi.Codegen do
 
   defp generate_expr(nil, _, _, _), do: {:atom, 1, :undefined}
   defp generate_expr(expr, _, _, _) do
+    if is_list(expr) do
+       IO.puts("Crash in generate_expr with list: #{inspect(expr, limit: :infinity)}")
+       {:current_stacktrace, trace} = Process.info(self(), :current_stacktrace)
+       IO.inspect(trace)
+    end
     raise "Unsupported expression for codegen: #{inspect(expr)}"
+  end
+
+  # A name is a data constructor if it starts with an uppercase letter.
+  # Used to distinguish constructors (Just, Nothing, Left, Right, EQ, LT, GT…)
+  # from regular functions when the name is absent from the type environment.
+  defp constructor_name?(name) when is_binary(name) do
+    case name do
+      <<first::utf8, _::binary>> -> first >= ?A and first <= ?Z
+      _ -> false
+    end
   end
 
   defp generate_pattern(%AST.BinderVar{name: "_"}), do: {:var, 1, :_}
@@ -468,6 +542,12 @@ defmodule Phi.Codegen do
   defp find_bound_vars(%AST.BinderVar{name: name}, acc), do: MapSet.put(acc, name)
   defp find_bound_vars(%AST.BinderConstructor{args: args}, acc) do
     Enum.reduce(args, acc, &find_bound_vars/2)
+  end
+  defp find_bound_vars(%AST.BinderTuple{elems: elems}, acc) do
+    Enum.reduce(elems, acc, &find_bound_vars/2)
+  end
+  defp find_bound_vars(%AST.BinderList{head: h, tail: t}, acc) do
+    find_bound_vars(t, find_bound_vars(h, acc))
   end
   defp find_bound_vars(_, acc), do: acc
 

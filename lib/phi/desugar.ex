@@ -62,6 +62,11 @@ defmodule Phi.Desugar do
 
     %AST.DeclValue{name: name, binders: [], expr: final_expr}
   end
+  defp desugar_decl(%AST.DeclInstance{members: members} = inst) do
+    # Desugar and group multi-equation instance methods just like top-level decls.
+    desugared_members = members |> group_decls() |> Enum.map(&desugar_decl/1)
+    %{inst | members: desugared_members}
+  end
   defp desugar_decl(decl), do: decl
 
   defp desugar_expr(%AST.ExprApp{func: f, arg: a}) do
@@ -74,6 +79,50 @@ defmodule Phi.Desugar do
     grouped_bindings = group_decls(bindings)
     desugared_bindings = Enum.map(grouped_bindings, &desugar_decl/1)
     %AST.ExprLet{bindings: desugared_bindings, body: desugar_expr(body)}
+  end
+  # Do notation desugaring:
+  #   do { x <- e; rest } → bind e (fun x -> do { rest })
+  #   do { e; rest }      → bind e (fun _ -> do { rest })
+  #   do { let decls; rest } → let decls in do { rest }
+  #   do { e }            → e  (last statement, no bind)
+  defp desugar_expr({:do, stmts}), do: desugar_do(stmts)
+
+  defp desugar_do([{:expr, expr}]) do
+    desugar_expr(expr)
+  end
+  defp desugar_do([{:bind, binder, expr} | rest]) do
+    %AST.ExprApp{
+      func: %AST.ExprApp{
+        func: %AST.ExprVar{name: "bind"},
+        arg: desugar_expr(expr)
+      },
+      arg: %AST.ExprLam{binder: binder, body: desugar_do(rest)}
+    }
+  end
+  defp desugar_do([{:expr, expr} | rest]) do
+    %AST.ExprApp{
+      func: %AST.ExprApp{
+        func: %AST.ExprVar{name: "bind"},
+        arg: desugar_expr(expr)
+      },
+      arg: %AST.ExprLam{binder: %AST.BinderVar{name: "_do_discard"}, body: desugar_do(rest)}
+    }
+  end
+  defp desugar_do([{:let, decls} | rest]) do
+    %AST.ExprLet{bindings: decls, body: desugar_do(rest)}
+  end
+  defp desugar_do([]) do
+    %AST.ExprVar{name: "unit"}
+  end
+
+  defp desugar_expr(%AST.ExprCase{exprs: exprs, branches: branches} = ec) do
+    %{ec |
+      exprs: Enum.map(exprs, &desugar_expr/1),
+      branches: Enum.map(branches, fn {pats, body} -> {pats, desugar_expr(body)} end)
+    }
+  end
+  defp desugar_expr(%AST.ExprIf{cond: c, then_br: t, else_br: e}) do
+    %AST.ExprIf{cond: desugar_expr(c), then_br: desugar_expr(t), else_br: desugar_expr(e)}
   end
   defp desugar_expr(expr), do: expr
 

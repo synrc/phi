@@ -23,7 +23,7 @@ defmodule Phi.Layout do
 
     case ctx do
       [] -> do_resolve_token(tokens, acc, ctx, depth)
-      [{layout_col, layout_depth} | ctx_rest] ->
+      [{layout_type, layout_col, layout_depth} | ctx_rest] ->
         cond do
           # 1. Indentation outdent takes priority
           col < layout_col and depth <= layout_depth ->
@@ -37,17 +37,20 @@ defmodule Phi.Layout do
               do_resolve(tokens, [{:right_brace, line, col} | acc], ctx_rest, depth)
             end
 
-          # 3. 'in' keyword closes layout blocks >= its own column
-          # ONLY IF not already outdented (Rule 1 handles col < layout_col)
-          elem(token, 0) == :in and layout_col >= col and layout_depth >= depth ->
-            do_resolve(tokens, [{:right_brace, line, col} | acc], ctx_rest, depth)
+          # 3. 'in' keyword closes layout blocks until it closes a 'let'
+          elem(token, 0) == :in ->
+             if has_let_in_ctx?(ctx, depth) do
+                do_resolve(tokens, [{:right_brace, line, col} | acc], ctx_rest, depth)
+             else
+                do_resolve_token(tokens, acc, ctx, depth)
+             end
 
           # 4. Semicolon injection
           col == layout_col and depth == layout_depth ->
             case acc do
               [{:left_brace, _, _} | _] -> do_resolve_token(tokens, acc, ctx, depth)
               _ when elem(token, 0) in [:in, :else_kw, :then_kw, :of] -> do_resolve_token(tokens, acc, ctx, depth)
-              _ -> do_resolve(rest, [token, {:semicolon, line, col} | acc], ctx, depth)
+              _ -> do_resolve_token(tokens, [{:semicolon, line, col} | acc], ctx, depth)
             end
 
           true ->
@@ -84,11 +87,11 @@ defmodule Phi.Layout do
     acc = [{:where, line, col} | acc]
     case rest do
        [] ->
-         do_resolve([], [{:left_brace, line, col + 1} | acc], [{col + 1, depth} | ctx], depth)
+         do_resolve([], [{:left_brace, line, col + 1} | acc], [{:where, col + 1, depth} | ctx], depth)
        [next | _] ->
          next_line = elem(next, 1)
          next_col = elem(next, 2)
-         do_resolve(rest, [{:left_brace, next_line, next_col} | acc], [{next_col, depth} | ctx], depth)
+         do_resolve(rest, [{:left_brace, next_line, next_col} | acc], [{:where, next_col, depth} | ctx], depth)
     end
   end
 
@@ -99,7 +102,7 @@ defmodule Phi.Layout do
        [next | _] ->
          next_line = elem(next, 1)
          next_col = elem(next, 2)
-         do_resolve(rest, [{:left_brace, next_line, next_col} | acc], [{next_col, depth} | ctx], depth)
+         do_resolve(rest, [{:left_brace, next_line, next_col} | acc], [{:let, next_col, depth} | ctx], depth)
     end
   end
 
@@ -110,7 +113,7 @@ defmodule Phi.Layout do
        [next | _] ->
          next_line = elem(next, 1)
          next_col = elem(next, 2)
-         do_resolve(rest, [{:left_brace, next_line, next_col} | acc], [{next_col, depth} | ctx], depth)
+         do_resolve(rest, [{:left_brace, next_line, next_col} | acc], [{:do, next_col, depth} | ctx], depth)
     end
   end
 
@@ -121,11 +124,16 @@ defmodule Phi.Layout do
        [next | _] ->
          next_line = elem(next, 1)
          next_col = elem(next, 2)
-         do_resolve(rest, [{:left_brace, next_line, next_col} | acc], [{next_col, depth} | ctx], depth)
+         do_resolve(rest, [{:left_brace, next_line, next_col} | acc], [{:of, next_col, depth} | ctx], depth)
     end
   end
 
   defp do_resolve_token([token | rest], acc, ctx, depth) do
     do_resolve(rest, [token | acc], ctx, depth)
   end
+
+  defp has_let_in_ctx?([], _), do: false
+  defp has_let_in_ctx?([{_, _, block_depth} | _], depth) when block_depth < depth, do: false
+  defp has_let_in_ctx?([{:let, _, _} | _], _), do: true
+  defp has_let_in_ctx?([_ | ctx], depth), do: has_let_in_ctx?(ctx, depth)
 end

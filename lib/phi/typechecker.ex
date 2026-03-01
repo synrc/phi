@@ -494,6 +494,7 @@ defmodule Phi.Typechecker do
   defp free_vars(%Phi.Type.TConstrained{args: args, type: t}) do
     Enum.reduce(args, free_vars(t), fn arg, acc -> MapSet.union(acc, free_vars(arg)) end)
   end
+  defp free_vars(_), do: MapSet.new()
 
   defp env_free_vars(%Env{bindings: b}, subst) do
     Enum.reduce(b, MapSet.new(), fn {_, scheme}, acc ->

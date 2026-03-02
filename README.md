@@ -22,6 +22,8 @@
 
 ## Credits
 
+* Miranda Team
+* Haskell Team
 * PureScript Team
 * Hamler Team
 

@@ -144,7 +144,7 @@ foreign import bindListImpl :: forall a b. [a] -> (a -> [b]) -> [b]
 foreign import data IO :: Type -> Type
 
 instance Functor IO where
-  map f a = apply (pure f) a
+  map f a = apply (pureImpl f) a
 
 instance Applicative IO where
   apply f a = do

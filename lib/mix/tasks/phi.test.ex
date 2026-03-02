@@ -31,7 +31,9 @@ defmodule Mix.Tasks.Phi.Test do
 
     # Step 3: run tests
     IO.puts("\n--- Running tests ---\n")
+    IO.puts("Calling run_test_main()...")
     run_test_main()
+    IO.puts("run_test_main() finished.")
   end
 
   defp multi_pass_compile([], _env, _pass, _label) do
@@ -123,7 +125,6 @@ defmodule Mix.Tasks.Phi.Test do
     try do
       # tests/Test.hm → module :test → main/0 returns IO ()
       io_action = :test.main()
-      # IO () is fun() -> result in Erlang representation
       if is_function(io_action, 0) do
         io_action.()
       else
@@ -131,12 +132,14 @@ defmodule Mix.Tasks.Phi.Test do
       end
     rescue
       e ->
-        IO.puts("Error running tests: #{Exception.message(e)}")
-        IO.puts(Exception.format(:error, e, __STACKTRACE__))
+        case e do
+          %ErlangError{original: {:undef, [{:test, :main, _, _} | _]}} ->
+            IO.puts("Could not find test:main/0 — was tests/Test.hm compiled?")
+          _ ->
+            IO.puts("Error running tests: #{Exception.message(e)}")
+            IO.puts(Exception.format(:error, e, __STACKTRACE__))
+        end
     catch
-      :error, {:undef, [{:test, :main, _, _} | _]} ->
-        IO.puts("Could not find test:main/0 — was tests/Test.hm compiled?")
-
       kind, val ->
         IO.puts("Error: #{kind}: #{inspect(val)}")
     end

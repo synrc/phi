@@ -130,7 +130,8 @@ defmodule Phi.Desugar do
   end
   defp desugar_do([{:let, decls} | rest]) do
     inner = desugar_do(rest)
-    %AST.ExprLet{bindings: decls, body: inner}
+    grouped = decls |> group_decls() |> Enum.map(&desugar_decl/1)
+    %AST.ExprLet{bindings: grouped, body: inner}
   end
   defp desugar_do([{:expr, expr} | rest]) do
     inner = desugar_do(rest)

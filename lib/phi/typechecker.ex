@@ -7,13 +7,16 @@ defmodule Phi.Typechecker do
 
   defmodule Env do
     @moduledoc "Typing Environment mapping names to Polytypes"
-    defstruct bindings: %{}, aliases: %{}, classes: %{}, instances: %{}, member_to_class: %{}, term_aliases: %{}
+    defstruct bindings: %{}, aliases: %{}, classes: %{}, instances: %{}, member_to_class: %{}, term_aliases: %{}, module_aliases: %{}, class_to_members: %{}
 
     def new(), do: %Env{}
 
-    def extend(%Env{bindings: b} = env, module, name, scheme) do
+    def extend(%Env{bindings: b} = env, module, name, scheme, hamler_mod \\ nil) do
       # Store as {module, scheme}
-      %{env | bindings: Map.put(b, name, {module, scheme})}
+      if hamler_mod, do: IO.puts("EXTEND: #{hamler_mod}.#{name} -> #{module}")
+      b1 = Map.put(b, name, {module, scheme})
+      b2 = if hamler_mod, do: Map.put(b1, "#{hamler_mod}.#{name}", {module, scheme}), else: b1
+      %{env | bindings: b2}
     end
 
     def add_alias(%Env{aliases: a} = env, name, type) do
@@ -28,8 +31,15 @@ defmodule Phi.Typechecker do
       Map.fetch(a, name)
     end
 
-    def resolve_term_alias(%Env{term_aliases: ta}, name) do
-      Map.get(ta, name, name)
+    def resolve_term_alias(%Env{term_aliases: ta, module_aliases: ma}, name) do
+      case String.split(name, ".", parts: 2) do
+        [mod, member] ->
+          case Map.get(ma, mod) do
+            nil -> Map.get(ta, name, name)
+            full_mod -> "#{full_mod}.#{member}"
+          end
+        _ -> Map.get(ta, name, name)
+      end
     end
   end
 
@@ -62,7 +72,7 @@ defmodule Phi.Typechecker do
           %Forall{} = s -> s
           t -> %Forall{vars: [], type: t}
         end
-        Env.extend(acc, erl_mod, name, scheme)
+        Env.extend(acc, erl_mod, name, scheme, mod_name)
 
       %AST.DeclForeign{name: name, type: ast_type}, acc ->
         type = ast_to_type(ast_type, acc)
@@ -70,7 +80,7 @@ defmodule Phi.Typechecker do
           %Forall{} = s -> s
           t -> %Forall{vars: [], type: t}
         end
-        Env.extend(acc, erl_mod, name, scheme)
+        Env.extend(acc, erl_mod, name, scheme, mod_name)
 
       %AST.DeclTypeAlias{name: name, type: ast_type}, acc ->
         type = ast_to_type(ast_type, acc)
@@ -82,10 +92,19 @@ defmodule Phi.Typechecker do
 
         # 1. Register class metadata
         arg_names = Enum.map(args, fn %AST.TypeVar{name: n} -> n end)
-        acc_with_class = %{acc | classes: Map.put(acc.classes, name, %{args: arg_names, members: members})}
+        acc_with_class_metadata = %{acc | classes: Map.put(acc.classes, name, %{args: arg_names, members: members})}
 
-        # 2. Add class-constrained signatures for each member
-        Enum.reduce(members, acc_with_class, fn
+        # 2. Populate member_to_class and class_to_members
+        member_names = Enum.map(members, fn %AST.DeclTypeSignature{name: m_name} -> "#{mod_name}.#{m_name}" end)
+        acc_with_class_info = %{acc_with_class_metadata |
+          member_to_class: Enum.reduce(members, acc_with_class_metadata.member_to_class, fn %AST.DeclTypeSignature{name: m_name}, acc_m ->
+             acc_m |> Map.put(m_name, name) |> Map.put("#{mod_name}.#{m_name}", name)
+          end),
+          class_to_members: Map.put(acc_with_class_metadata.class_to_members, name, member_names)
+        }
+
+        # 3. Add class-constrained signatures for each member
+        Enum.reduce(members, acc_with_class_info, fn
           %AST.DeclTypeSignature{name: m_name, type: m_type}, env_acc ->
             # Convert AST type to internal type
             _base_type = ast_to_type(m_type, env_acc)
@@ -95,7 +114,7 @@ defmodule Phi.Typechecker do
             constraint = if args == [] do
                %AST.TypeConstructor{name: name}
             else
-               Enum.reduce(args, %AST.TypeConstructor{name: name}, fn arg, f -> %AST.TypeApp{func: f, arg: %AST.TypeVar{name: arg}} end)
+               Enum.reduce(args, %AST.TypeConstructor{name: name}, fn %AST.TypeVar{name: arg_name}, f -> %AST.TypeApp{func: f, arg: %AST.TypeVar{name: arg_name}} end)
             end
 
             constrained_type = %AST.TypeConstrained{constraints: [constraint], type: m_type}
@@ -105,8 +124,8 @@ defmodule Phi.Typechecker do
             all_fvs = free_vars(final_type) |> MapSet.to_list()
             scheme = %Forall{vars: all_fvs, type: final_type}
 
-            env_with_m = %{env_acc | member_to_class: Map.put(env_acc.member_to_class, m_name, name)}
-            Env.extend(env_with_m, erl_mod, m_name, scheme)
+            env_acc
+            |> Env.extend(erl_mod, m_name, scheme, mod_name)
           _, env_acc -> env_acc
         end)
 
@@ -141,7 +160,9 @@ defmodule Phi.Typechecker do
 
       %AST.DeclFixity{op: op, name: name} = _df, acc ->
         if name do
-          %{acc | term_aliases: Map.put(acc.term_aliases, op, name)}
+          full_name = if String.contains?(name, "."), do: name, else: "#{mod_name}.#{name}"
+          IO.puts("FIXITY: #{op} -> #{full_name}")
+          %{acc | term_aliases: Map.put(acc.term_aliases, op, full_name)}
         else
           acc
         end
@@ -162,9 +183,79 @@ defmodule Phi.Typechecker do
            end)
 
            var_names = Enum.map(args, fn arg_name -> arg_name end)
-           Env.extend(env_acc, erl_mod, c_name, %Forall{vars: var_names, type: con_type})
+           env_with_ctor = Env.extend(env_acc, erl_mod, c_name, %Forall{vars: var_names, type: con_type}, mod_name)
+
+           # Register record field accessors so they can be resolved in codegen
+           case c_args do
+             [%AST.TypeRecord{fields: fields}] ->
+               Enum.reduce(fields, env_with_ctor, fn field_name, e ->
+                 acc_name = "access_#{field_name}"
+                 Env.extend(e, erl_mod, acc_name, nil, mod_name)
+               end)
+             _ -> env_with_ctor
+           end
         end)
-      _, acc -> acc
+
+      %AST.DeclNewtype{name: nt_name, args: args, constructor: ctor_name, type: wrapped_type}, acc ->
+        type_vars = Enum.map(args, fn %AST.TypeVar{name: n} -> %TVar{id: n}; n when is_binary(n) -> %TVar{id: n} end)
+        ret_type = Enum.reduce(type_vars, %TCon{name: nt_name}, fn tv, acc_type -> %TApp{func: acc_type, arg: tv} end)
+        wrapped = ast_to_type(wrapped_type, acc)
+        con_type = Phi.Type.arrow(wrapped, ret_type)
+        var_names = Enum.map(args, fn %AST.TypeVar{name: n} -> n; n when is_binary(n) -> n end)
+        Env.extend(acc, erl_mod, ctor_name, %Forall{vars: var_names, type: con_type}, mod_name)
+
+       %AST.DeclImport{module: m, alias: a, import_list: items}, acc ->
+         acc1 = if a do
+           %{acc | module_aliases: Map.put(acc.module_aliases, a, m)}
+         else
+           acc
+         end
+         # Also add items to term_aliases
+         Enum.reduce(items || [], acc1, fn
+            {:value, item_name}, acc_in ->
+              IO.puts("IMPORT value: #{item_name} -> #{m}.#{item_name}")
+              %{acc_in | term_aliases: Map.put(acc_in.term_aliases, item_name, "#{m}.#{item_name}")}
+            {:operator, op}, acc_in ->
+              # Keep existing alias if it resolves to a valid binding (handles re-exported operators)
+              # or if fixity already resolved this operator to a name in module m
+              existing = Map.get(acc_in.term_aliases, op)
+              existing_valid = existing && (Map.has_key?(acc_in.bindings, existing) || String.starts_with?(existing, "#{m}."))
+              resolved = if existing_valid, do: existing, else: "#{m}.#{op}"
+              IO.puts("IMPORT operator: #{op} -> #{resolved}")
+              %{acc_in | term_aliases: Map.put(acc_in.term_aliases, op, resolved)}
+            {:class, class_name}, acc_in ->
+              qualified_name = "#{m}.#{class_name}"
+              IO.puts("IMPORT class: #{class_name} -> #{qualified_name}")
+              # When importing a class, also import aliases for its methods
+              env_with_class_members = case Map.get(acc.classes, qualified_name) do
+                nil -> acc_in
+                %{members: members} ->
+                  %{acc_in | member_to_class: Enum.reduce(members, acc_in.member_to_class, fn
+                    %AST.DeclTypeSignature{name: m_name}, acc_m ->
+                      acc_m |> Map.put(m_name, qualified_name) |> Map.put("#{class_name}.#{m_name}", qualified_name)
+                    {m_name, _}, acc_m -> # Handle cases where members might be tuples (e.g., from parsing)
+                      acc_m |> Map.put(m_name, qualified_name) |> Map.put("#{class_name}.#{m_name}", qualified_name)
+                  end)}
+              end
+
+              members_from_class = Map.get(acc.class_to_members, qualified_name, [])
+              Enum.reduce(members_from_class, env_with_class_members, fn member_full_name, acc_inner ->
+                member_base_name = List.last(String.split(member_full_name, "."))
+                %{acc_inner | term_aliases: Map.put(acc_inner.term_aliases, member_base_name, member_full_name)}
+              end)
+            {:type, type_name}, acc_in ->
+               IO.puts("IMPORT type: #{type_name} -> #{m}.#{type_name}")
+               acc_in
+            _, acc_in -> acc_in
+          end)
+      %AST.DeclValue{name: name}, acc when name != "_pat" ->
+        if Map.has_key?(acc.bindings, name) || Map.has_key?(acc.bindings, "#{mod_name}.#{name}") do
+          acc
+        else
+          Env.extend(acc, erl_mod, name, nil, mod_name)
+        end
+
+       _, acc -> acc
     end)
   end
 

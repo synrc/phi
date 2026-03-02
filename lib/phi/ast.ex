@@ -51,6 +51,10 @@ defmodule Phi.AST do
     defstruct [:name]
   end
 
+  defmodule ExprAtom do
+    defstruct [:value]
+  end
+
   defmodule ExprApp do
     defstruct [:func, :arg]
   end

@@ -11,27 +11,33 @@ defmodule Phi.Codegen do
   Generates Erlang forms for a module.
   Expects a desugared AST and a global typing environment.
   """
-  def generate(%AST.Module{name: mod_name, declarations: decls}, env) do
+  def generate(%AST.Module{name: mod_name, declarations: decls}, env, opts \\ []) do
     current_mod = mod_name |> String.downcase() |> String.replace(".", "_") |> String.to_atom()
+    foreign_mod = Keyword.get(opts, :foreign_mod, current_mod)
 
-    functions = Enum.flat_map(decls, fn decl ->
-      case generate_decl(decl, current_mod, current_mod, env) do
-        nil -> []
-        {:multi, list} -> list
-        func -> [func]
-      end
-    end)
+    try do
+      functions = Enum.flat_map(decls, fn decl ->
+        case generate_decl(decl, current_mod, foreign_mod, env) do
+          nil -> []
+          {:multi, list} -> list
+          func -> [func]
+        end
+      end)
 
-    module_attr = {:attribute, 1, :module, current_mod}
-    export_all = {:attribute, 1, :compile, :export_all}
+      module_attr = {:attribute, 1, :module, current_mod}
+      compile_attr = {:attribute, 1, :compile, :no_auto_import}
+      export_all = {:attribute, 1, :compile, :export_all}
 
-    forms = [module_attr, export_all] ++ functions ++ [{:eof, 1}]
-    {:ok, forms}
+      forms = [module_attr, compile_attr, export_all] ++ functions ++ [{:eof, 1}]
+      {:ok, forms}
+    catch
+      {:unresolved_any_name, name} -> {:error, {:unresolved, name}}
+    end
   end
 
   defp generate_decl(%AST.DeclValue{name: name, binders: binders, expr: expr}, current_mod, _foreign_mod, env) do
     func_name = String.to_atom(name)
-    {_mod, scheme, _real_name} = get_info(name, env)
+    {_mod, scheme, _real_name, _base_name} = get_info(name, env)
     {num_dicts, num_args} = if scheme, do: split_arity(scheme), else: {0, 0}
 
     erl_binders = Enum.map(binders || [], &generate_pattern/1)
@@ -103,6 +109,12 @@ defmodule Phi.Codegen do
     {:multi, functions}
   end
 
+  defp generate_decl(%AST.DeclNewtype{constructor: ctor_name}, _, _, _) do
+    f_atom = String.to_atom(ctor_name)
+    # Newtype constructor: wraps its argument as {ctor, arg}
+    {:function, 1, f_atom, 1, [{:clause, 1, [{:var, 1, :X1}], [], [{:tuple, 1, [{:atom, 1, f_atom}, {:var, 1, :X1}]}]}]}
+  end
+
   defp generate_decl(%AST.DeclClass{members: members}, _, _, _) do
     functions = Enum.map(members, fn %AST.DeclTypeSignature{name: m_name} ->
       f_atom = String.to_atom(m_name)
@@ -155,6 +167,7 @@ defmodule Phi.Codegen do
 
   defp split_arity(%Type.Forall{type: t}), do: do_split_arity(t, 0, 0)
   defp split_arity(t), do: do_split_arity(t, 0, 0)
+  defp do_split_arity(%Type.Forall{type: t}, c, a), do: do_split_arity(t, c, a)
   defp do_split_arity(%Type.TConstrained{type: t}, c, a), do: do_split_arity(t, c + 1, a)
   defp do_split_arity(%Type.TApp{func: %Type.TApp{func: %Type.TCon{name: "->"}}, arg: res}, c, a), do: do_split_arity(res, c, a + 1)
   defp do_split_arity(_, c, a), do: {c, a}
@@ -184,10 +197,22 @@ defmodule Phi.Codegen do
   defp extract_args(expr, env, acc_args), do: {acc_args, expr, env}
 
   defp get_info(name, env) do
-    real_name = Env.resolve_term_alias(env, name)
-    case Env.lookup(env, real_name) do
-      {:ok, {mod, scheme}} -> {mod, scheme, real_name}
-      :error -> {nil, nil, real_name}
+    # Prefer direct unqualified binding over term_alias redirect (local definitions win)
+    {real_name, result} =
+      case Env.lookup(env, name) do
+        {:ok, _} = ok -> {name, ok}
+        :error ->
+          aliased = Env.resolve_term_alias(env, name)
+          {aliased, Env.lookup(env, aliased)}
+      end
+    case result do
+      {:ok, {mod, scheme}} ->
+        base_name = real_name |> String.split(".") |> List.last()
+        IO.puts("RESOLVE: #{name} -> #{real_name} (mod: #{mod})")
+        {mod, scheme, real_name, base_name}
+      :error ->
+        IO.puts("RESOLVE FAILED: #{name} -> #{real_name}, THROWING RETRY")
+        throw({:unresolved_any_name, real_name})
     end
   end
 
@@ -211,6 +236,7 @@ defmodule Phi.Codegen do
     {:call, 1, {:remote, 1, {:atom, 1, :maps}, {:atom, 1, :merge}}, [erl_base, erl_update_map]}
   end
 
+  defp generate_expr(%AST.ExprAtom{value: v}, _, _, _, _, _), do: {:atom, 1, String.to_atom(v)}
   defp generate_expr(%AST.ExprVar{name: "num_" <> ns}, _, _, _, _, _), do: {:integer, 1, String.to_integer(ns)}
   defp generate_expr(%AST.ExprVar{name: "float_" <> fs}, _, _, _, _, _), do: {:float, 1, String.to_float(fs)}
   defp generate_expr(%AST.ExprVar{name: "str_" <> s}, _, _, _, _, _), do: {:string, 1, String.to_charlist(s)}
@@ -218,6 +244,9 @@ defmodule Phi.Codegen do
   defp generate_expr(%AST.ExprVar{name: "true"}, _, _, _, _, _), do: {:atom, 1, :true}
   defp generate_expr(%AST.ExprVar{name: "false"}, _, _, _, _, _), do: {:atom, 1, :false}
   defp generate_expr(%AST.ExprVar{name: "unit"}, _, _, _, _, _), do: {:atom, 1, :unit}
+  # undefined is the Haskell bottom value — generate erlang:error(undefined)
+  defp generate_expr(%AST.ExprVar{name: "undefined"}, _, _, _, _, _),
+    do: {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :error}}, [{:atom, 1, :undefined}]}
   defp generate_expr(%AST.ExprVar{name: name}, local_env, global_env, current_mod, _name, fix_env) do
     if Map.has_key?(fix_env, name) do
       Map.get(fix_env, name)
@@ -225,17 +254,21 @@ defmodule Phi.Codegen do
     if MapSet.member?(local_env, name) do
       {:var, 1, String.capitalize(name) |> String.to_atom()}
     else
-      {mod, scheme, real_name} = get_info(name, global_env)
+      {mod, scheme, real_name, base_name} = get_info(name, global_env)
+      if mod == nil and String.contains?(name, ".") do
+        raise "Unresolved qualified name: #{name}"
+      end
       if scheme == nil && constructor_name?(real_name) do
-        {:tuple, 1, [{:atom, 1, String.to_atom(real_name)}]}
+        {:tuple, 1, [{:atom, 1, String.to_atom(base_name)}]}
       else
         {num_dicts, num_args} = if scheme, do: split_arity(scheme), else: {0, 0}
         total_arity = num_dicts + num_args
         if total_arity == 0 and not constructor_name?(real_name) do
           if mod && mod != current_mod do
-             {:fun, 1, {:function, {:atom, 1, mod}, {:atom, 1, String.to_atom(real_name)}, {:integer, 1, 2}}}
+             # Call arity 0 if it's a top-level value
+             {:call, 1, {:remote, 1, {:atom, 1, mod}, {:atom, 1, String.to_atom(base_name)}}, []}
           else
-             {:atom, 1, String.to_atom(real_name)}
+             {:atom, 1, String.to_atom(base_name)}
           end
         else
           if num_dicts > 0 do
@@ -273,17 +306,29 @@ defmodule Phi.Codegen do
     end
   end
 
-  defp generate_expr(%AST.ExprLam{binder: binder, body: body}, local_env, global_env, current_mod, name, fix_env) do
-    erl_pat = generate_pattern(binder)
-    bound_vars = find_bound_vars(binder, MapSet.new())
-    local_env2 = if name, do: MapSet.put(local_env, name), else: local_env
-    local_env3 = MapSet.union(local_env2, bound_vars)
-    erl_body = generate_expr(body, local_env3, global_env, current_mod, nil, fix_env)
-    clause = {:clause, 1, [erl_pat], [], [erl_body]}
+  defp generate_expr(%AST.ExprLam{binder: binder, body: body} = lam, local_env, global_env, current_mod, name, fix_env) do
     if name && MapSet.member?(find_used_vars(body, MapSet.new()), name) do
+      # Recursive lambda: stay arity 1 for now or handle properly
+      erl_pat = generate_pattern(binder)
+      bound_vars = find_bound_vars(binder, MapSet.new())
+      local_env2 = MapSet.union(MapSet.put(local_env, name), bound_vars)
+      erl_body = generate_expr(body, local_env2, global_env, current_mod, nil, fix_env)
+      clause = {:clause, 1, [erl_pat], [], [erl_body]}
       {:named_fun, 1, String.capitalize(name) |> String.to_atom(), [clause]}
     else
-      {:fun, 1, {:clauses, [clause]}}
+      {pats, final_body, final_env} = flatten_lam(lam, [], local_env)
+      erl_body = generate_expr(final_body, final_env, global_env, current_mod, nil, fix_env)
+      {:fun, 1, {:clauses, [{:clause, 1, pats, [], [erl_body]}]}}
+    end
+  end
+
+  defp flatten_lam(%AST.ExprLam{binder: binder, body: body}, acc_pats, acc_env) do
+    erl_pat = generate_pattern(binder)
+    bound_vars = find_bound_vars(binder, MapSet.new())
+    new_env = MapSet.union(acc_env, bound_vars)
+    case body do
+      %AST.ExprLam{} -> flatten_lam(body, acc_pats ++ [erl_pat], new_env)
+      _ -> {acc_pats ++ [erl_pat], body, new_env}
     end
   end
 
@@ -300,9 +345,9 @@ defmodule Phi.Codegen do
             erl_f = {:var, 1, String.capitalize(name) |> String.to_atom()}
             Enum.reduce(erl_args, erl_f, fn arg, acc -> {:call, 1, acc, [arg]} end)
           true ->
-          {mod, scheme, real_name} = get_info(name, global_env)
+          {mod, scheme, real_name, base_name} = get_info(name, global_env)
           if scheme == nil && constructor_name?(real_name) do
-            {:tuple, 1, [{:atom, 1, String.to_atom(real_name)} | erl_args]}
+            {:tuple, 1, [{:atom, 1, String.to_atom(base_name)} | erl_args]}
           else
             {num_dicts, num_args} = if scheme, do: split_arity(scheme), else: {0, 0}
             total_arity = num_dicts + num_args
@@ -313,22 +358,22 @@ defmodule Phi.Codegen do
                  if dict_arg_name do
                     dict_expr = {:var, 1, String.to_atom(dict_arg_name)}
                     accessor_call = if mod && mod != current_mod do
-                      {:call, 1, {:remote, 1, {:atom, 1, mod}, {:atom, 1, String.to_atom(real_name)}}, [dict_expr]}
+                      {:call, 1, {:remote, 1, {:atom, 1, mod}, {:atom, 1, String.to_atom(base_name)}}, [dict_expr]}
                     else
-                      {:call, 1, {:atom, 1, String.to_atom(real_name)}, [dict_expr]}
+                      {:call, 1, {:atom, 1, String.to_atom(base_name)}, [dict_expr]}
                     end
                     Enum.reduce(erl_args, accessor_call, fn arg, acc -> {:call, 1, acc, [arg]} end)
                  else
-                    generate_dispatch_call(real_name, mod, erl_args, class_name, global_env, current_mod)
+                    generate_dispatch_call(base_name, mod, erl_args, class_name, global_env, current_mod)
                  end
                else
                  final_args = if dict_arg_name, do: [{:var, 1, String.to_atom(dict_arg_name)} | erl_args], else: erl_args
-                 generate_static_call(real_name, mod, total_arity, final_args, current_mod)
+                 generate_static_call(base_name, mod, total_arity, final_args, current_mod)
                end
             else
                # For unknown functions (scheme=nil), use actual arg count to avoid f()(args) pattern
                effective_arity = if scheme == nil, do: length(erl_args), else: total_arity
-               generate_static_call(real_name, mod, effective_arity, erl_args, current_mod)
+               generate_static_call(base_name, mod, effective_arity, erl_args, current_mod)
             end
           end
         end
@@ -402,7 +447,10 @@ defmodule Phi.Codegen do
   defp generate_expr(nil, _, _, _, _, _), do: {:atom, 1, :undefined}
   defp generate_expr(expr, _, _, _, _, _), do: raise "Unsupported: #{inspect(expr)}"
 
-  defp constructor_name?(name) when is_binary(name), do: match?(<<first::utf8, _::binary>> when first >= ?A and first <= ?Z, name)
+  defp constructor_name?(name) when is_binary(name) do
+    last_part = name |> String.split(".") |> List.last()
+    match?(<<first::utf8, _::binary>> when first >= ?A and first <= ?Z, last_part)
+  end
   defp constructor_name?(_), do: false
 
   defp generate_pattern(%AST.BinderVar{name: "_"}), do: {:var, 1, :_}
@@ -423,8 +471,15 @@ defmodule Phi.Codegen do
   end
   defp generate_pattern(%AST.ExprList{elems: es, tail: t}), do: Enum.reduce(Enum.reverse(es), if(t, do: generate_pattern(t), else: {nil, 1}), fn e, acc -> {:cons, 1, generate_pattern(e), acc} end)
   defp generate_pattern(%AST.BinderList{head: h, tail: t}) do
-     erl_tail = if(t, do: generate_pattern(t), else: {nil, 1})
-     if h, do: {:cons, 1, generate_pattern(h), erl_tail}, else: erl_tail
+    erl_tail = if(t, do: generate_pattern(t), else: {nil, 1})
+    case h do
+      nil -> erl_tail
+      [] -> erl_tail
+      # Build a cons chain for [h1, h2, ... | tail]
+      elems when is_list(elems) ->
+        Enum.reduce(Enum.reverse(elems), erl_tail, fn e, acc -> {:cons, 1, generate_pattern(e), acc} end)
+      single -> {:cons, 1, generate_pattern(single), erl_tail}
+    end
   end
   defp generate_pattern(l) when is_list(l) do
     case l do [s] -> generate_pattern(s); m -> {:tuple, 1, Enum.map(m, &generate_pattern/1)} end
@@ -447,6 +502,7 @@ defmodule Phi.Codegen do
     {f, args} = flatten_app(app, [])
     Enum.reduce(args, find_bound_vars(f, acc), &find_bound_vars/2)
   end
+  defp find_bound_vars(ls, acc) when is_list(ls), do: Enum.reduce(ls, acc, &find_bound_vars/2)
   defp find_bound_vars(%AST.BinderList{head: h, tail: t}, acc), do: find_bound_vars(h, if(t, do: find_bound_vars(t, acc), else: acc))
   defp find_bound_vars(_, acc), do: acc
 
@@ -464,10 +520,16 @@ defmodule Phi.Codegen do
 
   defp erlang_type_guard(type, arg_var) do
     case type_outer_name(type) do
-      "IO" ->
-        {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :is_function}}, [arg_var, {:integer, 1, 0}]}
-      "List" ->
-        {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :is_list}}, [arg_var]}
+      "IO" -> {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :is_function}}, [arg_var, {:integer, 1, 0}]}
+      "Fun" -> {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :is_function}}, [arg_var]}
+      "List" -> {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :is_list}}, [arg_var]}
+      "String" -> {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :is_list}}, [arg_var]}
+      "Integer" -> {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :is_integer}}, [arg_var]}
+      "Float" -> {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :is_float}}, [arg_var]}
+      "Boolean" -> {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :is_boolean}}, [arg_var]}
+      "Atom" -> {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :is_atom}}, [arg_var]}
+      "Binary" -> {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :is_binary}}, [arg_var]}
+      "Char" -> {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :is_integer}}, [arg_var]}
       nil -> nil
       ctor_name ->
         {:op, 1, :"andalso",
@@ -482,9 +544,17 @@ defmodule Phi.Codegen do
     instances = Map.get(global_env.instances, class_name, [])
     n = length(erl_args)
 
-    # Try each arg position (0 first, then 1, ...) — first position with matching instances wins.
+    # Some methods have their type parameter at a specific index
+    dispatch_order =
+      cond do
+        n == 0 -> []
+        real_name == "map" and n > 1 -> Enum.to_list(1..(n-1)) ++ [0]
+        true -> Enum.to_list(0..(n-1))
+      end
+
+    # Try each arg position — first position with matching instances wins.
     result = if n > 0 do
-      Enum.find_value(0..(n - 1), fn dispatch_idx ->
+      Enum.find_value(dispatch_order, fn dispatch_idx ->
         dispatch_target = Enum.at(erl_args, dispatch_idx)
         dispatch_var_atom = :"DDispatch__#{System.unique_integer([:positive])}"
         dispatch_var = {:var, 1, dispatch_var_atom}
@@ -495,10 +565,11 @@ defmodule Phi.Codegen do
             guard = erlang_type_guard(type, dispatch_var)
             if guard do
               dict_call = {:call, 1, {:remote, 1, {:atom, 1, dict_mod}, {:atom, 1, String.to_atom(dn)}}, []}
+              base_method = real_name |> String.split(".") |> List.last()
               accessor = if mod && mod != current_mod do
-                {:call, 1, {:remote, 1, {:atom, 1, mod}, {:atom, 1, String.to_atom(real_name)}}, [dict_call]}
+                {:call, 1, {:remote, 1, {:atom, 1, mod}, {:atom, 1, String.to_atom(base_method)}}, [dict_call]}
               else
-                {:call, 1, {:atom, 1, String.to_atom(real_name)}, [dict_call]}
+                {:call, 1, {:atom, 1, String.to_atom(base_method)}, [dict_call]}
               end
               [{:clause, 1, [dispatch_var], [[guard]], [accessor]}]
             else
@@ -510,11 +581,30 @@ defmodule Phi.Codegen do
         if clauses != [] do
           error_clause = {:clause, 1, [dispatch_var], [],
             [{:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :error}},
-              [{:tuple, 1, [{:atom, 1, :no_instance}, {:atom, 1, String.to_atom(class_name)}]}]}]}
+              [{:tuple, 1, [{:atom, 1, :no_instance}, {:atom, 1, String.to_atom(class_name)}, dispatch_var]}]}]}
 
           match_expr = {:match, 1, dispatch_var, dispatch_target}
           case_expr = {:case, 1, dispatch_var, clauses ++ [error_clause]}
-          applied = Enum.reduce(args_with_var, case_expr, fn arg, acc -> {:call, 1, acc, [arg]} end)
+
+          # Retrieve the method's expected arity to curry properly
+          {_, scheme, _, _} = get_info(real_name, global_env)
+          {_num_dicts, expected_arity} = if scheme, do: split_arity(scheme), else: {0, 0}
+
+          num_actual = length(args_with_var)
+
+          applied = cond do
+            num_actual == expected_arity ->
+              {:call, 1, case_expr, args_with_var}
+            num_actual < expected_arity ->
+              vs = Enum.map(1..(expected_arity - num_actual), fn i -> {:var, 1, String.to_atom("P#{i}")} end)
+              {:fun, 1, {:clauses, [{:clause, 1, vs, [], [{:call, 1, case_expr, args_with_var ++ vs}]}]}}
+            num_actual > expected_arity ->
+              {ba, ea} = Enum.split(args_with_var, expected_arity)
+              Enum.reduce(ea, {:call, 1, case_expr, ba}, fn a, acc -> {:call, 1, acc, [a]} end)
+            true ->
+              # Fallback one-by-one (Should never be hit for typed methods)
+              Enum.reduce(args_with_var, case_expr, fn arg, acc -> {:call, 1, acc, [arg]} end)
+          end
 
           # Erlang requires blocks to return the final application
           {:block, 1, [match_expr, applied]}

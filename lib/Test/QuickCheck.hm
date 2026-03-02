@@ -239,6 +239,7 @@ check :: forall a. Testable a => String -> Integer -> a -> SpaceCounter -> IO Te
 check s 0 m n = (printf "%s✔ %s" (concat $ replicate (n/5) basePipe) s :: IO ()) >>= \_ -> pure Successed
 check s v m n = do
   i <- randomRIO 1332292274972041455 7304856964418773083
+  println ("Checking " ++ s ++ " with iteration " ++ show v) 
   let Gen fun = evaluate m
       Result r =  fun 15 (mkRand i)
   case r.ok of

@@ -697,7 +697,7 @@ defmodule Phi.Parser do
   defp parse_expr_atom_base([{:float, _, _, val} | rest]), do: {:ok, %AST.ExprVar{name: "float_#{val}"}, rest}
   defp parse_expr_atom_base([{:string, _, _, val} | rest]), do: {:ok, %AST.ExprVar{name: "str_" <> val}, rest}
   defp parse_expr_atom_base([{:char, _, _, val} | rest]), do: {:ok, %AST.ExprVar{name: "char_#{val}"}, rest}
-  defp parse_expr_atom_base([{:atom, _, _, val} | rest]), do: {:ok, %AST.ExprVar{name: "str_" <> val}, rest}
+  defp parse_expr_atom_base([{:atom, _, _, val} | rest]), do: {:ok, %AST.ExprAtom{value: val}, rest}
   defp parse_expr_atom_base([{:unit, _, _} | rest]), do: {:ok, %AST.ExprVar{name: "unit"}, rest}
   defp parse_expr_atom_base([{:left_paren, _, _} | rest]) do
     case rest do
@@ -891,7 +891,8 @@ defmodule Phi.Parser do
           {:ok, tail, [{:right_square, _, _} | rest2]} -> {:ok, %AST.BinderList{head: binders, tail: tail}, rest2}
           err -> err
         end
-      {:ok, _binders, [{:right_square, _, _} | rest2]} -> {:ok, %AST.BinderList{head: nil, tail: nil}, rest2}
+      {:ok, [], [{:right_square, _, _} | rest2]} -> {:ok, %AST.BinderList{head: nil, tail: nil}, rest2}
+      {:ok, binders, [{:right_square, _, _} | rest2]} -> {:ok, %AST.BinderList{head: binders, tail: nil}, rest2}
       err -> err
     end
   end

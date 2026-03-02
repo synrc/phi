@@ -14,7 +14,7 @@ defmodule Phi.Compiler do
          desugared_ast <- Phi.Desugar.desugar(ast) do
 
       # Compile companion Erlang file if it exists
-      if source_path do
+      foreign_mod = if source_path do
         :code.add_patha(~c"ebin")
         erl_path = String.replace(source_path, ".hm", ".erl")
         if File.exists?(erl_path) do
@@ -23,14 +23,18 @@ defmodule Phi.Compiler do
               IO.puts("    Compiled foreign module: #{erlmod}")
               :code.purge(erlmod)
               :code.load_file(erlmod)
-            {:error, err, _warn} -> IO.puts("Warning: foreign compile failed: #{inspect(err)}")
+              erlmod
+            {:error, err, _warn} ->
+              IO.puts("Warning: foreign compile failed: #{inspect(err)}")
+              nil
           end
         end
       end
 
       new_env = Phi.Typechecker.build_env(desugared_ast, env)
 
-      case Phi.Codegen.generate(desugared_ast, new_env) do
+      codegen_opts = if foreign_mod, do: [foreign_mod: foreign_mod], else: []
+      case Phi.Codegen.generate(desugared_ast, new_env, codegen_opts) do
         {:ok, forms} ->
            case :compile.forms(forms, [:return_errors, :debug_info]) do
              {:ok, mod, bin} ->

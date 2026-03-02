@@ -22,6 +22,8 @@
 
 ## Credits
 
+Without these guys this language would be impossible:
+
 * Miranda Team
 * Haskell Team
 * PureScript Team

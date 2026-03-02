@@ -32,6 +32,7 @@ Without these guys this language would be impossible:
 * Prolog Team
 * Erlang Team
 * Elixir Team
+* Groupoid Team (Namdak Tonpa)
 
 ## Author
 

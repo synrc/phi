@@ -26,6 +26,8 @@
 * Haskell Team
 * PureScript Team
 * Hamler Team
+* Robin Milner (ML)
+* Prolog Team
 * Erlang Team
 * Elixir Team
 

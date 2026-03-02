@@ -10,7 +10,11 @@ defmodule Phi.MixProject do
       ]
   end
   def application do [ extra_applications: [ :logger ] ] end
-  def deps do [ {:ex_doc, ">= 0.0.0", only: :dev} ] end
+  def deps do
+      [
+#        {:ex_doc, ">= 0.0.0", only: :dev}
+      ]
+  end
   def package() do
       [
         files: ["lib", "repl", "LICENSE", "README.md" ],

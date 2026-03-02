@@ -20,7 +20,6 @@ defmodule Phi.Compiler do
         if File.exists?(erl_path) do
           case :compile.file(String.to_charlist(erl_path), [:return_errors, :debug_info, {:outdir, ~c"ebin"}]) do
             {:ok, erlmod} ->
-              IO.puts("    Compiled foreign module: #{erlmod}")
               :code.purge(erlmod)
               :code.load_file(erlmod)
               erlmod

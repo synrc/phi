@@ -13,7 +13,6 @@ defmodule Phi.Typechecker do
 
     def extend(%Env{bindings: b} = env, module, name, scheme, hamler_mod \\ nil) do
       # Store as {module, scheme}
-      if hamler_mod, do: IO.puts("EXTEND: #{hamler_mod}.#{name} -> #{module}")
       b1 = Map.put(b, name, {module, scheme})
       b2 = if hamler_mod, do: Map.put(b1, "#{hamler_mod}.#{name}", {module, scheme}), else: b1
       %{env | bindings: b2}
@@ -161,7 +160,6 @@ defmodule Phi.Typechecker do
       %AST.DeclFixity{op: op, name: name} = _df, acc ->
         if name do
           full_name = if String.contains?(name, "."), do: name, else: "#{mod_name}.#{name}"
-          IO.puts("FIXITY: #{op} -> #{full_name}")
           %{acc | term_aliases: Map.put(acc.term_aliases, op, full_name)}
         else
           acc
@@ -213,7 +211,6 @@ defmodule Phi.Typechecker do
          # Also add items to term_aliases
          Enum.reduce(items || [], acc1, fn
             {:value, item_name}, acc_in ->
-              IO.puts("IMPORT value: #{item_name} -> #{m}.#{item_name}")
               %{acc_in | term_aliases: Map.put(acc_in.term_aliases, item_name, "#{m}.#{item_name}")}
             {:operator, op}, acc_in ->
               # Keep existing alias if it resolves to a valid binding (handles re-exported operators)
@@ -221,11 +218,9 @@ defmodule Phi.Typechecker do
               existing = Map.get(acc_in.term_aliases, op)
               existing_valid = existing && (Map.has_key?(acc_in.bindings, existing) || String.starts_with?(existing, "#{m}."))
               resolved = if existing_valid, do: existing, else: "#{m}.#{op}"
-              IO.puts("IMPORT operator: #{op} -> #{resolved}")
               %{acc_in | term_aliases: Map.put(acc_in.term_aliases, op, resolved)}
             {:class, class_name}, acc_in ->
               qualified_name = "#{m}.#{class_name}"
-              IO.puts("IMPORT class: #{class_name} -> #{qualified_name}")
               # When importing a class, also import aliases for its methods
               env_with_class_members = case Map.get(acc.classes, qualified_name) do
                 nil -> acc_in
@@ -243,8 +238,7 @@ defmodule Phi.Typechecker do
                 member_base_name = List.last(String.split(member_full_name, "."))
                 %{acc_inner | term_aliases: Map.put(acc_inner.term_aliases, member_base_name, member_full_name)}
               end)
-            {:type, type_name}, acc_in ->
-               IO.puts("IMPORT type: #{type_name} -> #{m}.#{type_name}")
+            {:type, _type_name}, acc_in ->
                acc_in
             _, acc_in -> acc_in
           end)

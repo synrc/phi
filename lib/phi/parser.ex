@@ -68,7 +68,6 @@ defmodule Phi.Parser do
   defp parse_module_name(_, _), do: :error
 
   defp parse_decls([{:right_brace, _, _} | rest], acc) do
-    IO.puts("parse_decls BASE_BRACE: rest=#{inspect(Enum.take(rest, 2))} acc_len=#{length(acc)}")
     {:ok, Enum.reverse(acc), rest}
   end
   defp parse_decls(tokens, acc) do
@@ -316,7 +315,6 @@ defmodule Phi.Parser do
   defp parse_instance_with_where(tokens) do
     case parse_type(tokens) do
       {:ok, type, rest} ->
-        IO.inspect(Enum.take(rest, 5), label: "Tokens after instance type")
         {ctx, t} = case type do
           %AST.TypeConstrained{constraints: c, type: inner} -> {c, inner}
           _ -> {[], type}

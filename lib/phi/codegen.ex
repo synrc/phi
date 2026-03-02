@@ -208,10 +208,8 @@ defmodule Phi.Codegen do
     case result do
       {:ok, {mod, scheme}} ->
         base_name = real_name |> String.split(".") |> List.last()
-        IO.puts("RESOLVE: #{name} -> #{real_name} (mod: #{mod})")
         {mod, scheme, real_name, base_name}
       :error ->
-        IO.puts("RESOLVE FAILED: #{name} -> #{real_name}, THROWING RETRY")
         throw({:unresolved_any_name, real_name})
     end
   end

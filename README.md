@@ -26,6 +26,8 @@
 * Haskell Team
 * PureScript Team
 * Hamler Team
+* Erlang Team
+* Elixir Team
 
 ## Author
 

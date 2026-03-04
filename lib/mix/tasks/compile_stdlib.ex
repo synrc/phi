@@ -13,11 +13,11 @@ defmodule Mix.Tasks.CompileStdlib do
   def run(_args) do
     Mix.Task.run("compile", [])
 
-    files = Path.wildcard("lib/**/*.phi") |> Enum.sort()
+    files = Path.wildcard("stdlib/**/*.phi") |> Enum.sort()
     total = length(files)
 
     IO.puts("\n#{IO.ANSI.bright()}=== Phi Stdlib Compilation Report ===#{IO.ANSI.reset()}")
-    IO.puts("Found #{total} .phu files\n")
+    IO.puts("Found #{total} .phi files\n")
 
     # Build dependency graph and sort topologically
     module_infos = Enum.map(files, &extract_module_info/1)

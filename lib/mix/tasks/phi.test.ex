@@ -18,10 +18,10 @@ defmodule Mix.Tasks.Phi.Test do
     IO.puts("\n=== Phi Native Test Runner ===\n")
 
     # Step 1: compile stdlib
-    IO.puts("--- Compiling stdlib (lib/**/*.phi) ---")
-    lib_files = Path.wildcard("lib/**/*.phi")
+    IO.puts("--- Compiling stdlib (stdlib/**/*.phi) ---")
+    lib_files = Path.wildcard("stdlib/**/*.phi")
     IO.puts("Found #{length(lib_files)} stdlib files.")
-    stdlib_env = multi_pass_compile(lib_files, Phi.Typechecker.Env.new(), 1, "lib")
+    stdlib_env = multi_pass_compile(lib_files, Phi.Typechecker.Env.new(), 1, "stdlib")
 
     # Step 2: compile test suite
     IO.puts("\n--- Compiling test suite (tests/**/*.phi) ---")

@@ -365,14 +365,14 @@ defmodule Phi.Codegen do
           base_name = real_name |> String.split(".") |> List.last()
           {nil, nil, real_name, base_name}
         else
-        if String.contains?(real_name, ".") do
-          parts = String.split(real_name, ".")
-          {mod_parts, [base_name]} = Enum.split(parts, length(parts) - 1)
-          mod = Enum.join(mod_parts, ".") |> String.to_atom()
-          {mod, nil, real_name, base_name}
-        else
-          throw({:unresolved_any_name, real_name})
-        end
+          if String.contains?(real_name, ".") do
+            parts = String.split(real_name, ".")
+            {mod_parts, [base_name]} = Enum.split(parts, length(parts) - 1)
+            mod = Enum.join(mod_parts, ".") |> String.to_atom()
+            {mod, nil, real_name, base_name}
+          else
+            throw({:unresolved_any_name, real_name})
+          end
         end
     end
   end
@@ -430,10 +430,15 @@ defmodule Phi.Codegen do
   defp generate_expr(%AST.ExprAtom{value: v}, _, _, _, _, _), do: {:atom, 1, String.to_atom(v)}
 
   defp generate_expr(%AST.ExprBinary{value: values}, _, _, _, _, _) do
-    bin_elements = Enum.map(values, fn
-      {:number, val} -> {:bin_element, 1, {:integer, 1, val}, :default, :default}
-      {:string, val} -> {:bin_element, 1, {:string, 1, String.to_charlist(val)}, :default, :default}
-    end)
+    bin_elements =
+      Enum.map(values, fn
+        {:number, val} ->
+          {:bin_element, 1, {:integer, 1, val}, :default, :default}
+
+        {:string, val} ->
+          {:bin_element, 1, {:string, 1, String.to_charlist(val)}, :default, :default}
+      end)
+
     {:bin, 1, bin_elements}
   end
 
@@ -464,7 +469,9 @@ defmodule Phi.Codegen do
         {:receive, 1, erl_clauses, {:integer, 1, 0}, [after_erl]}
 
       {:ok, timeout_expr, after_body} ->
-        timeout_erl = generate_expr(timeout_expr, local_env, global_env, current_mod, name, fix_env)
+        timeout_erl =
+          generate_expr(timeout_expr, local_env, global_env, current_mod, name, fix_env)
+
         after_erl = generate_expr(after_body, local_env, global_env, current_mod, name, fix_env)
         {:receive, 1, erl_clauses, timeout_erl, [after_erl]}
     end
@@ -680,14 +687,34 @@ defmodule Phi.Codegen do
                       # Preserve dict-first calling convention by wrapping:
                       #   fun(D1..Dn) -> f(D1..Dn, args...) end
                       dict_vars =
-                        Enum.map(1..num_dicts, fn i ->
-                          {:var, 1, String.to_atom("D#{i}")}
-                        end)
+                        if class_name do
+                          instances = Map.get(global_env.instances, class_name, [])
 
-                      call =
-                        generate_static_call(base_name, mod, total_arity, dict_vars ++ erl_args, current_mod)
+                          case Enum.find(instances, fn _ -> true end) do
+                            %{dict_name: dn, mod: dict_mod}
+                            when is_atom(dict_mod) and not is_nil(dict_mod) ->
+                              [
+                                {:call, 1,
+                                 {:remote, 1, {:atom, 1, dict_mod},
+                                  {:atom, 1, String.to_atom(dn)}}, []}
+                              ]
 
-                      {:fun, 1, {:clauses, [{:clause, 1, dict_vars, [], [call]}]}}
+                            _ ->
+                              Enum.map(1..num_dicts, fn _ ->
+                                {:atom, 1, :undefined_dict}
+                              end)
+                          end
+                        else
+                          Enum.map(1..num_dicts, fn _ -> {:atom, 1, :undefined_dict} end)
+                        end
+
+                      generate_static_call(
+                        base_name,
+                        mod,
+                        total_arity,
+                        dict_vars ++ erl_args,
+                        current_mod
+                      )
                     end
                   end
                 else
@@ -864,7 +891,12 @@ defmodule Phi.Codegen do
   defp desugar_do([{:expr, expr}]), do: expr
 
   defp desugar_do([{:bind, binder, expr}]),
-    do: %AST.ExprApp{func: %AST.ExprVar{name: "bind"}, arg: %AST.ExprTuple{elems: [expr, %AST.ExprLam{binder: binder, body: %AST.ExprVar{name: "unit"}}]}}
+    do: %AST.ExprApp{
+      func: %AST.ExprVar{name: "bind"},
+      arg: %AST.ExprTuple{
+        elems: [expr, %AST.ExprLam{binder: binder, body: %AST.ExprVar{name: "unit"}}]
+      }
+    }
 
   defp desugar_do([{:let, decls} | rest]) do
     %AST.ExprLet{bindings: decls, body: desugar_do(rest)}
@@ -876,7 +908,10 @@ defmodule Phi.Codegen do
   end
 
   defp desugar_do([{:expr, expr} | rest]) do
-    %AST.ExprApp{func: %AST.ExprApp{func: %AST.ExprVar{name: "discard"}, arg: expr}, arg: desugar_do(rest)}
+    %AST.ExprApp{
+      func: %AST.ExprApp{func: %AST.ExprVar{name: "discard"}, arg: expr},
+      arg: desugar_do(rest)
+    }
   end
 
   defp constructor_name?(name) when is_binary(name) do
@@ -1114,7 +1149,6 @@ defmodule Phi.Codegen do
           dispatch_target = Enum.at(erl_args, dispatch_idx)
           dispatch_var_atom = :"DDispatch__#{System.unique_integer([:positive])}"
           dispatch_var = {:var, 1, dispatch_var_atom}
-          args_with_var = List.replace_at(erl_args, dispatch_idx, dispatch_var)
 
           clauses =
             Enum.flat_map(instances, fn
@@ -1151,18 +1185,23 @@ defmodule Phi.Codegen do
 
                   accessor =
                     if is_method do
-                      if mod && mod != current_mod do
-                        {:call, 1,
-                         {:remote, 1, {:atom, 1, mod}, {:atom, 1, String.to_atom(base_method)}},
-                         [dict_call]}
-                      else
-                        {:call, 1, {:atom, 1, String.to_atom(base_method)}, [dict_call]}
-                      end
+                      base_accessor =
+                        if mod && mod != current_mod do
+                          {:call, 1,
+                           {:remote, 1, {:atom, 1, mod}, {:atom, 1, String.to_atom(base_method)}},
+                           [dict_call]}
+                        else
+                          {:call, 1, {:atom, 1, String.to_atom(base_method)}, [dict_call]}
+                        end
+
+                      remaining_args = List.delete_at(erl_args, dispatch_idx)
+
+                      Enum.reduce(remaining_args, base_accessor, fn arg, acc ->
+                        {:call, 1, acc, [arg]}
+                      end)
                     else
                       {_, scheme, _, _} = get_info(real_name, global_env)
                       {_, ea} = if scheme, do: split_arity(scheme), else: {0, 0}
-
-                      vs = Enum.map(1..ea, fn i -> {:var, 1, String.to_atom("CArg#{i}")} end)
 
                       target =
                         if mod && mod != current_mod do
@@ -1171,8 +1210,34 @@ defmodule Phi.Codegen do
                           {:atom, 1, String.to_atom(base_method)}
                         end
 
-                      {:fun, 1,
-                       {:clauses, [{:clause, 1, vs, [], [{:call, 1, target, [dict_call] ++ vs}]}]}}
+                      remaining_args = List.delete_at(erl_args, dispatch_idx)
+                      num_remaining = length(remaining_args)
+
+                      cond do
+                        num_remaining == ea ->
+                          {:call, 1, target, [dict_call] ++ remaining_args}
+
+                        num_remaining < ea ->
+                          vs =
+                            if ea - num_remaining > 0,
+                              do:
+                                Enum.map(1..(ea - num_remaining), fn i ->
+                                  {:var, 1, String.to_atom("CArg#{i}")}
+                                end),
+                              else: []
+
+                          {:fun, 1,
+                           {:clauses,
+                            [
+                              {:clause, 1, vs, [],
+                               [{:call, 1, target, [dict_call] ++ remaining_args ++ vs}]}
+                            ]}}
+
+                        num_remaining > ea ->
+                          {ba, ea_args} = Enum.split(remaining_args, ea)
+                          base_call = {:call, 1, target, [dict_call] ++ ba}
+                          Enum.reduce(ea_args, base_call, fn a, acc -> {:call, 1, acc, [a]} end)
+                      end
                     end
 
                   [{:clause, 1, [dispatch_var], [[guard]], [accessor]}]
@@ -1202,40 +1267,8 @@ defmodule Phi.Codegen do
             match_expr = {:match, 1, dispatch_var, dispatch_target}
             case_expr = {:case, 1, dispatch_var, clauses ++ [error_clause]}
 
-            # Retrieve the method's expected arity to curry properly
-            {_, scheme, _, _} = get_info(real_name, global_env)
-            {_num_dicts, expected_arity} = if scheme, do: split_arity(scheme), else: {0, 0}
-
-            num_actual = length(args_with_var)
-
-            applied =
-              cond do
-                num_actual == expected_arity ->
-                  {:call, 1, case_expr, args_with_var}
-
-                num_actual < expected_arity ->
-                  vs =
-                    Enum.map(1..(expected_arity - num_actual), fn i ->
-                      {:var, 1, String.to_atom("P#{i}")}
-                    end)
-
-                  {:fun, 1,
-                   {:clauses,
-                    [{:clause, 1, vs, [], [{:call, 1, case_expr, args_with_var ++ vs}]}]}}
-
-                num_actual > expected_arity ->
-                  {ba, ea} = Enum.split(args_with_var, expected_arity)
-
-                  base_call = {:call, 1, case_expr, ba}
-                  Enum.reduce(ea, base_call, fn a, acc -> {:call, 1, acc, [a]} end)
-
-                true ->
-                  # Fallback one-by-one (Should never be hit for typed methods)
-                  Enum.reduce(args_with_var, case_expr, fn arg, acc -> {:call, 1, acc, [arg]} end)
-              end
-
             # Erlang requires blocks to return the final application
-            {:block, 1, [match_expr, applied]}
+            {:block, 1, [match_expr, case_expr]}
           else
             nil
           end
@@ -1244,7 +1277,6 @@ defmodule Phi.Codegen do
 
     result ||
       (
-
         is_method = Map.has_key?(global_env.member_to_class, real_name)
 
         if is_method do
@@ -1378,8 +1410,12 @@ defmodule Phi.Codegen do
 
   defp find_used_vars(%AST.ExprDo{statements: stats}, acc) do
     Enum.reduce(stats, acc, fn
-      {:bind, _binder, expr}, a -> find_used_vars(expr, a)
-      {:expr, expr}, a -> find_used_vars(expr, a)
+      {:bind, _binder, expr}, a ->
+        find_used_vars(expr, a)
+
+      {:expr, expr}, a ->
+        find_used_vars(expr, a)
+
       {:let, decls}, a ->
         Enum.reduce(decls, a, fn
           %AST.DeclValue{expr: r}, a2 -> find_used_vars(r, a2)
@@ -1395,9 +1431,14 @@ defmodule Phi.Codegen do
       end)
 
     case after_clause do
-      :none -> acc1
-      {:ok, after_body} -> find_used_vars(after_body, acc1)
-      {:ok, timeout_expr, after_body} -> find_used_vars(after_body, find_used_vars(timeout_expr, acc1))
+      :none ->
+        acc1
+
+      {:ok, after_body} ->
+        find_used_vars(after_body, acc1)
+
+      {:ok, timeout_expr, after_body} ->
+        find_used_vars(after_body, find_used_vars(timeout_expr, acc1))
     end
   end
 

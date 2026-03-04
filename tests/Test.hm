@@ -1,7 +1,7 @@
 module Test where
 
 import Test.QuickCheck (TestGroup(..), runTest)
-import Test.Data.List as List
+import Test.Data.Bool as List
 import Prelude
 
 main :: IO ()

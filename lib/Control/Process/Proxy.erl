@@ -12,7 +12,7 @@
 %% The Process Proxy FFI.
 %%
 %%---------------------------------------------------------------------------
--module('Proxy').
+-module('Control.Process.Proxy.FFI').
 
 -include("../../Foreign.hrl").
 

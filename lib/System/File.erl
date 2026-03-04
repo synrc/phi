@@ -12,7 +12,7 @@
 %% The File FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('File').
+-module('System.File.FFI').
 
 -include("../Foreign.hrl").
 

@@ -12,7 +12,7 @@
 %% The ETS FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('ETS').
+-module('Database.ETS.FFI').
 
 -include("../Foreign.hrl").
 

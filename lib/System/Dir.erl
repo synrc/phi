@@ -12,7 +12,7 @@
 %% The Directory FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('Dir').
+-module('System.Dir.FFI').
 
 -include("../Foreign.hrl").
 

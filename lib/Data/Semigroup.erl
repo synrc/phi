@@ -12,7 +12,7 @@
 %% The Semigroup FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('Semigroup').
+-module('Data.Semigroup.FFI').
 
 -export([ stringAppend/2
         , listAppend/2

@@ -12,7 +12,7 @@
 %% The Map FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('Map').
+-module('Data.Map.FFI').
 
 -include("../Foreign/Maybe.hrl").
 

@@ -12,7 +12,7 @@
 %% The Error FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('Error').
+-module('System.Error.FFI').
 
 -include("../Foreign.hrl").
 

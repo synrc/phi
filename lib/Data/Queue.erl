@@ -12,7 +12,7 @@
 %% The Queue FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('Queue').
+-module('Data.Queue.FFI').
 
 -include("../Foreign.hrl").
 

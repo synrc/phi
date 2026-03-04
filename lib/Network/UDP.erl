@@ -12,7 +12,7 @@
 %% The UDP FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('UDP').
+-module('Network.UDP.FFI').
 
 -include("../Foreign.hrl").
 

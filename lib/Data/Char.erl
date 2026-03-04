@@ -12,7 +12,7 @@
 %% The Char FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('Char').
+-module('Data.Char.FFI').
 
 -export([ isControl/1
         , isSpace/1

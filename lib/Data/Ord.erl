@@ -12,7 +12,7 @@
 %% The Ord FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('Ord').
+-module('Data.Ord.FFI').
 
 -export([ cmpAtomImpl/3
         , cmpBoolImpl/3

@@ -12,7 +12,7 @@
 %% The IO FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('IO').
+-module('System.IO.FFI').
 
 -include("../Foreign.hrl").
 

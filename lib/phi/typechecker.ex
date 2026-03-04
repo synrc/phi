@@ -95,7 +95,7 @@ defmodule Phi.Typechecker do
   @doc "Builds an initial typing environment from a list of AST declarations"
   def build_env(%AST.Module{name: mod_name, declarations: decls}, env) do
     # Convention: module Data.List -> 'data_list' (matches Codegen convention)
-    erl_mod = mod_name |> String.downcase() |> String.replace(".", "_") |> String.to_atom()
+    erl_mod = mod_name |> String.to_atom()
 
     Enum.reduce(decls, env, fn
       %AST.DeclTypeSignature{name: name, type: ast_type}, acc ->
@@ -423,6 +423,14 @@ defmodule Phi.Typechecker do
 
   def ast_to_type(%AST.TypeApp{func: f, arg: a}, env) do
     %TApp{func: ast_to_type(f, env), arg: ast_to_type(a, env)}
+  end
+
+  def ast_to_type(
+        %AST.TypeConstrained{constraints: [%AST.TypeTuple{elems: tuple_elems} | rest], type: t},
+        env
+      ) do
+    # Expand tuple elements into individual constraints and prepend them
+    ast_to_type(%AST.TypeConstrained{constraints: tuple_elems ++ rest, type: t}, env)
   end
 
   def ast_to_type(%AST.TypeConstrained{constraints: [c | rest], type: t}, env) do

@@ -12,7 +12,7 @@
 %% The Timer FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('Timer').
+-module('System.Timer.FFI').
 
 -include("../Foreign.hrl").
 

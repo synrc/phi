@@ -12,7 +12,7 @@
 %% The Tuple FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('Unit').
+-module('Data.Unit.FFI').
 
 -export([unit/0]).
 

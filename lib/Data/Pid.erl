@@ -12,7 +12,7 @@
 %% The Pid FFI Module.
 %%
 %%---------------------------------------------------------------------------
--module('Pid').
+-module('Data.Pid.FFI').
 
 -export([eqPidImpl/2, cmpPidImpl/3, showPidImpl/1]).
 

@@ -12,7 +12,7 @@
 %% The Application FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('Application').
+-module('Control.Application.FFI').
 
 -include("../Foreign.hrl").
 

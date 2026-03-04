@@ -12,7 +12,7 @@
 %% The PG FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('PG').
+-module('Control.Distributed.PG.FFI').
 
 -include("../../Foreign.hrl").
 

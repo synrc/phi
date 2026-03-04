@@ -12,7 +12,7 @@
 %% The Digraph FFI Module.
 %%
 %%---------------------------------------------------------------------------
--module('Digraph').
+-module('Data.Digraph.FFI').
 
 -include("../Foreign.hrl").
 

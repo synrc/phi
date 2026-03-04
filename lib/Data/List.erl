@@ -12,7 +12,7 @@
 %% The List FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('List').
+-module('Data.List.FFI').
 
 -include("../Foreign/Maybe.hrl").
 

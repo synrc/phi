@@ -12,7 +12,7 @@
 %% The Mnesia Database FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('Mnesia').
+-module('Database.Mnesia.FFI').
 
 -include("../Foreign.hrl").
 

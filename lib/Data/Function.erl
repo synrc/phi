@@ -12,7 +12,7 @@
 %% The Function FFI Module.
 %%
 %%---------------------------------------------------------------------------
--module('Function').
+-module('Data.Function.FFI').
 
 -export([error/1]).
 

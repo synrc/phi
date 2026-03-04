@@ -12,7 +12,7 @@
 %% The Atomics FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('Atomics').
+-module('Data.Atomics.FFI').
 
 -include("../Foreign.hrl").
 

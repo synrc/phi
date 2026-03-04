@@ -12,7 +12,7 @@
 %% The Binary FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('Binary').
+-module('Data.Binary.FFI').
 
 -export([
     split/3,

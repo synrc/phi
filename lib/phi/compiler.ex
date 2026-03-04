@@ -19,19 +19,40 @@ defmodule Phi.Compiler do
           erl_path = String.replace(source_path, ".hm", ".erl")
 
           if File.exists?(erl_path) do
-            case :compile.file(String.to_charlist(erl_path), [
-                   :return_errors,
-                   :debug_info,
-                   {:outdir, ~c"ebin"}
-                 ]) do
-              {:ok, erlmod} ->
-                :code.purge(erlmod)
-                :code.load_file(erlmod)
-                erlmod
+            erl_content = File.read!(erl_path)
+            # Find `-module('M').` using regex
+            mod_name_match = Regex.run(~r/-module\('([^']+)'\)\./, erl_content)
 
-              {:error, err, _warn} ->
-                IO.puts("Warning: foreign compile failed: #{inspect(err)}")
-                nil
+            mod_atom =
+              if mod_name_match, do: Enum.at(mod_name_match, 1) |> String.to_atom(), else: nil
+
+            # We can compile from forms if we parse it, but wait, `erl_scan` and `erl_parse` is easier:
+            # wait, `:erl_scan.string` and `:erl_parse.parse_form` is tedious for a whole file.
+            # An easier way: copy the file to a temp directory with the valid module name, compile, and move beam.
+            if mod_atom do
+              dir = Path.dirname(erl_path)
+              temp_erl = Path.join(dir, "#{mod_atom}.erl")
+              File.write!(temp_erl, erl_content)
+
+              case :compile.file(String.to_charlist(temp_erl), [
+                     :return_errors,
+                     :debug_info,
+                     {:outdir, ~c"ebin"}
+                   ]) do
+                {:ok, erlmod} ->
+                  File.rm(temp_erl)
+                  :code.purge(erlmod)
+                  :code.load_file(erlmod)
+                  erlmod
+
+                {:error, err, _warn} ->
+                  File.rm(temp_erl)
+                  IO.puts("Warning: foreign compile failed for #{erl_path}: #{inspect(err)}")
+                  nil
+              end
+            else
+              IO.puts("Warning: Could not extract module name from #{erl_path}")
+              nil
             end
           end
         end

@@ -12,7 +12,7 @@
 %% The DETS FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('DETS').
+-module('Database.DETS.FFI').
 
 -include("../Foreign.hrl").
 

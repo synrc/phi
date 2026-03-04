@@ -12,7 +12,7 @@
 %% The Erlang Env module.
 %%
 %%---------------------------------------------------------------------------
--module('Env').
+-module('System.Env.FFI').
 
 -include("../Foreign.hrl").
 

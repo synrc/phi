@@ -12,7 +12,7 @@
 %% The Inet FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('Inet').
+-module('Network.Inet.FFI').
 
 -include("../Foreign.hrl").
 

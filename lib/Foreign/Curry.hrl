@@ -14,8 +14,9 @@ curry(Fun, Args, 0) ->
   erlang:apply(Fun, lists:reverse(Args));
 curry(Fun, Args, N) ->
   fun(X) -> curry(Fun, [X|Args], N-1) end.
-
-arity(Fun) ->
-  element(2, erlang:fun_info(Fun, arity)).
+arity(Fun) when is_function(Fun) ->
+  element(2, erlang:fun_info(Fun, arity));
+arity(_) ->
+  0.
 
 -endif.

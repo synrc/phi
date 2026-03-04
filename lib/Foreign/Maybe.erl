@@ -12,7 +12,7 @@
 %% The Maybe module.
 %%
 %%---------------------------------------------------------------------------
--module('Maybe').
+-module('Foreign.Maybe.FFI').
 
 -include("Maybe.hrl").
 

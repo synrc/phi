@@ -12,7 +12,7 @@
 %% The QuickCheck FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('QuickCheck').
+-module('Test.QuickCheck.FFI').
 
 -export([ seed/1
         , mkRand/1

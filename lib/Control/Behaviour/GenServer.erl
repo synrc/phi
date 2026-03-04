@@ -12,7 +12,7 @@
 %% The GenServer FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('GenServer').
+-module('Control.Behaviour.GenServer.FFI').
 
 -include("../../Foreign.hrl").
 

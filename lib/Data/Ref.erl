@@ -12,7 +12,7 @@
 %% The Ref FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('Ref').
+-module('Data.Ref.FFI').
 
 -include("../Foreign.hrl").
 

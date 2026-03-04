@@ -12,7 +12,7 @@
 %% The GenEvent Behaviour FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('Proxy').
+-module('Control.Behaviour.GenEvent.Proxy.FFI').
 
 -include("../../../Foreign.hrl").
 

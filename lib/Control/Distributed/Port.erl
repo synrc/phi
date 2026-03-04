@@ -12,7 +12,7 @@
 %% The Port FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('Port').
+-module('Control.Distributed.Port.FFI').
 
 -include("../../Foreign.hrl").
 

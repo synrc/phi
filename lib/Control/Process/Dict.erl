@@ -12,7 +12,7 @@
 %% The Dict FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('Dict').
+-module('Control.Process.Dict.FFI').
 
 -include("../../Foreign.hrl").
 

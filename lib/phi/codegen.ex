@@ -12,7 +12,7 @@ defmodule Phi.Codegen do
   Expects a desugared AST and a global typing environment.
   """
   def generate(%AST.Module{name: mod_name, declarations: decls}, env, opts \\ []) do
-    current_mod = mod_name |> String.downcase() |> String.replace(".", "_") |> String.to_atom()
+    current_mod = mod_name |> String.to_atom()
     foreign_mod = Keyword.get(opts, :foreign_mod, current_mod)
 
     try do
@@ -246,6 +246,7 @@ defmodule Phi.Codegen do
 
   defp split_arity(%Type.Forall{type: t}), do: do_split_arity(t, 0, 0)
   defp split_arity(t), do: do_split_arity(t, 0, 0)
+
   defp do_split_arity(%Type.Forall{type: t}, c, a), do: do_split_arity(t, c, a)
   defp do_split_arity(%Type.TConstrained{type: t}, c, a), do: do_split_arity(t, c + 1, a)
 
@@ -253,6 +254,59 @@ defmodule Phi.Codegen do
     do: do_split_arity(res, c, a + 1)
 
   defp do_split_arity(_, c, a), do: {c, a}
+
+  defp extract_class_name(%Type.Forall{type: t}), do: extract_class_name(t)
+  defp extract_class_name(%Type.TConstrained{class_name: cn}), do: cn
+
+  defp extract_class_name(_t) do
+    # IO.puts("Failed to extract class_name from: \#{inspect(t)}")
+    nil
+  end
+
+  defp get_dispatch_index(scheme) do
+    do_get_dispatch_index(scheme) || 0
+  end
+
+  defp do_get_dispatch_index(%Type.Forall{type: t}), do: do_get_dispatch_index(t)
+
+  defp do_get_dispatch_index(%Type.TConstrained{args: args, type: t}) do
+    var_name =
+      case args do
+        [%Type.TVar{id: v} | _] -> v
+        _ -> nil
+      end
+
+    if var_name, do: find_var_index_in_spine(t, var_name, 0), else: 0
+  end
+
+  defp do_get_dispatch_index(_), do: 0
+
+  defp find_var_index_in_spine(
+         %Type.TApp{func: %Type.TApp{func: %Type.TCon{name: "->"}, arg: arg_t}, arg: ret_t},
+         var_name,
+         idx
+       ) do
+    if contains_var?(arg_t, var_name) do
+      idx
+    else
+      find_var_index_in_spine(ret_t, var_name, idx + 1)
+    end
+  end
+
+  defp find_var_index_in_spine(%Type.Forall{type: t}, var_name, idx),
+    do: find_var_index_in_spine(t, var_name, idx)
+
+  defp find_var_index_in_spine(%Type.TConstrained{type: t}, var_name, idx),
+    do: find_var_index_in_spine(t, var_name, idx)
+
+  defp find_var_index_in_spine(_, _, _), do: nil
+
+  defp contains_var?(%Type.TVar{id: v}, var_name), do: v == var_name
+
+  defp contains_var?(%Type.TApp{func: f, arg: a}, var_name),
+    do: contains_var?(f, var_name) or contains_var?(a, var_name)
+
+  defp contains_var?(_, _), do: false
 
   defp get_dict_names(scheme) do
     do_get_dict_names(scheme, [])
@@ -411,22 +465,32 @@ defmodule Phi.Codegen do
             end
           else
             if num_dicts > 0 do
-              class_name = global_env.member_to_class[real_name]
+              class_name = global_env.member_to_class[real_name] || extract_class_name(scheme)
               dict_arg_name = find_dictionary(class_name, local_env)
 
               if class_name do
+                is_method = Map.has_key?(global_env.member_to_class, real_name)
+
                 if dict_arg_name do
                   dict_expr = {:var, 1, String.to_atom(dict_arg_name)}
 
-                  if mod && mod != current_mod do
-                    {:call, 1,
-                     {:remote, 1, {:atom, 1, mod}, {:atom, 1, String.to_atom(real_name)}},
-                     [dict_expr]}
+                  if is_method do
+                    if mod && mod != current_mod do
+                      {:call, 1,
+                       {:remote, 1, {:atom, 1, mod}, {:atom, 1, String.to_atom(real_name)}},
+                       [dict_expr]}
+                    else
+                      {:call, 1, {:atom, 1, String.to_atom(real_name)}, [dict_expr]}
+                    end
                   else
-                    {:call, 1, {:atom, 1, String.to_atom(real_name)}, [dict_expr]}
+                    generate_static_call(base_name, mod, total_arity, [dict_expr], current_mod)
                   end
                 else
-                  generate_static_call(real_name, mod, 1, [], current_mod)
+                  if is_method do
+                    generate_static_call(real_name, mod, 1, [], current_mod)
+                  else
+                    generate_static_call(base_name, mod, total_arity, [], current_mod)
+                  end
                 end
               else
                 if dict_arg_name do
@@ -505,26 +569,50 @@ defmodule Phi.Codegen do
               total_arity = num_dicts + num_args
 
               if num_dicts > 0 do
-                class_name = global_env.member_to_class[real_name]
+                class_name = global_env.member_to_class[real_name] || extract_class_name(scheme)
                 dict_arg_name = find_dictionary(class_name, local_env)
 
+                if base_name == "quickCheck" do
+                  IO.puts(
+                    "DEBUG quickCheck: num_dicts: \#{num_dicts}, class_name: \#{class_name}, dict_arg_name: \#{dict_arg_name}, num_args: \#{num_args}, total_arity: \#{total_arity}"
+                  )
+                end
+
                 if class_name do
+                  is_method = Map.has_key?(global_env.member_to_class, real_name)
+
                   if dict_arg_name do
                     dict_expr = {:var, 1, String.to_atom(dict_arg_name)}
 
-                    accessor_call =
-                      if mod && mod != current_mod do
-                        {:call, 1,
-                         {:remote, 1, {:atom, 1, mod}, {:atom, 1, String.to_atom(base_name)}},
-                         [dict_expr]}
-                      else
-                        {:call, 1, {:atom, 1, String.to_atom(base_name)}, [dict_expr]}
-                      end
+                    if is_method do
+                      accessor_call =
+                        if mod && mod != current_mod do
+                          {:call, 1,
+                           {:remote, 1, {:atom, 1, mod}, {:atom, 1, String.to_atom(base_name)}},
+                           [dict_expr]}
+                        else
+                          {:call, 1, {:atom, 1, String.to_atom(base_name)}, [dict_expr]}
+                        end
 
-                    Enum.reduce(erl_args, accessor_call, fn arg, acc -> {:call, 1, acc, [arg]} end)
+                      Enum.reduce(erl_args, accessor_call, fn arg, acc ->
+                        {:call, 1, acc, [arg]}
+                      end)
+                    else
+                      generate_static_call(
+                        base_name,
+                        mod,
+                        total_arity,
+                        [dict_expr | erl_args],
+                        current_mod
+                      )
+                    end
                   else
+                    if base_name == "quickCheck" do
+                      IO.puts("DEBUG quickCheck: FALLING INTO generate_dispatch_call")
+                    end
+
                     generate_dispatch_call(
-                      base_name,
+                      real_name,
                       mod,
                       erl_args,
                       class_name,
@@ -533,6 +621,10 @@ defmodule Phi.Codegen do
                     )
                   end
                 else
+                  if base_name == "quickCheck" do
+                    IO.puts("DEBUG quickCheck: FALLING INTO static_call (class_name is nil)")
+                  end
+
                   final_args =
                     if dict_arg_name,
                       do: [{:var, 1, String.to_atom(dict_arg_name)} | erl_args],
@@ -839,11 +931,10 @@ defmodule Phi.Codegen do
 
   defp erlang_type_guard(type, arg_var) do
     case type_outer_name(type) do
-      "IO" ->
-        {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :is_function}},
-         [arg_var, {:integer, 1, 0}]}
-
       "Fun" ->
+        {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :is_function}}, [arg_var]}
+
+      "->" ->
         {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :is_function}}, [arg_var]}
 
       "List" ->
@@ -870,8 +961,9 @@ defmodule Phi.Codegen do
       "Char" ->
         {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :is_integer}}, [arg_var]}
 
-      nil ->
-        nil
+      "IO" ->
+        {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :is_function}},
+         [arg_var, {:integer, 1, 0}]}
 
       ctor_name ->
         {:op, 1, :andalso,
@@ -887,11 +979,34 @@ defmodule Phi.Codegen do
     n = length(erl_args)
 
     # Some methods have their type parameter at a specific index
+    base_name = real_name |> String.split(".") |> List.last()
+
+    {_, scheme, _, _} = get_info(real_name, global_env)
+
+    preferred_idx =
+      if scheme do
+        get_dispatch_index(scheme)
+      else
+        is_method = Map.has_key?(global_env.member_to_class, real_name)
+        if base_name == "map" and n > 1 and is_method, do: 1, else: 0
+      end
+
+    if base_name == "<$>" or base_name == "map" do
+      IO.puts(
+        "DEBUG DISPATCH #{base_name} -> preferred_idx: #{preferred_idx}, scheme_present: #{scheme != nil}"
+      )
+    end
+
     dispatch_order =
       cond do
-        n == 0 -> []
-        real_name == "map" and n > 1 -> Enum.to_list(1..(n - 1)) ++ [0]
-        true -> Enum.to_list(0..(n - 1))
+        n == 0 ->
+          []
+
+        preferred_idx < n ->
+          [preferred_idx | Enum.to_list(0..(n - 1)) -- [preferred_idx]]
+
+        true ->
+          Enum.to_list(0..(n - 1))
       end
 
     # Try each arg position — first position with matching instances wins.
@@ -905,24 +1020,58 @@ defmodule Phi.Codegen do
 
           clauses =
             Enum.flat_map(instances, fn
-              %{types: [type | _], dict_name: dn, mod: dict_mod}
+              %{types: [type | _], dict_name: dn, mod: dict_mod, constraints: cs}
               when is_atom(dict_mod) and not is_nil(dict_mod) ->
                 guard = erlang_type_guard(type, dispatch_var)
 
                 if guard do
+                  # Dynamically load the dictionaries required by this instance from the current scope
+                  derived_dict_args =
+                    if cs do
+                      Enum.map(cs, fn
+                        %Type.TConstrained{class_name: cn, args: [%Type.TVar{id: vn} | _]} ->
+                          {:var, 1, String.to_atom("Dict_#{cn}_#{vn}")}
+
+                        _ ->
+                          # Fallback, might crash if unresolved but better than arity 0
+                          {:var, 1, :Dict_K}
+                      end)
+                    else
+                      []
+                    end
+
                   dict_call =
                     {:call, 1, {:remote, 1, {:atom, 1, dict_mod}, {:atom, 1, String.to_atom(dn)}},
-                     []}
+                     derived_dict_args}
 
                   base_method = real_name |> String.split(".") |> List.last()
 
+                  is_method = Map.has_key?(global_env.member_to_class, real_name)
+
                   accessor =
-                    if mod && mod != current_mod do
-                      {:call, 1,
-                       {:remote, 1, {:atom, 1, mod}, {:atom, 1, String.to_atom(base_method)}},
-                       [dict_call]}
+                    if is_method do
+                      if mod && mod != current_mod do
+                        {:call, 1,
+                         {:remote, 1, {:atom, 1, mod}, {:atom, 1, String.to_atom(base_method)}},
+                         [dict_call]}
+                      else
+                        {:call, 1, {:atom, 1, String.to_atom(base_method)}, [dict_call]}
+                      end
                     else
-                      {:call, 1, {:atom, 1, String.to_atom(base_method)}, [dict_call]}
+                      {_, scheme, _, _} = get_info(real_name, global_env)
+                      {_, ea} = if scheme, do: split_arity(scheme), else: {0, 0}
+
+                      vs = Enum.map(1..ea, fn i -> {:var, 1, String.to_atom("CArg#{i}")} end)
+
+                      target =
+                        if mod && mod != current_mod do
+                          {:remote, 1, {:atom, 1, mod}, {:atom, 1, String.to_atom(base_method)}}
+                        else
+                          {:atom, 1, String.to_atom(base_method)}
+                        end
+
+                      {:fun, 1,
+                       {:clauses, [{:clause, 1, vs, [], [{:call, 1, target, [dict_call] ++ vs}]}]}}
                     end
 
                   [{:clause, 1, [dispatch_var], [[guard]], [accessor]}]
@@ -976,7 +1125,8 @@ defmodule Phi.Codegen do
                 num_actual > expected_arity ->
                   {ba, ea} = Enum.split(args_with_var, expected_arity)
 
-                  Enum.reduce(ea, {:call, 1, case_expr, ba}, fn a, acc -> {:call, 1, acc, [a]} end)
+                  base_call = {:call, 1, case_expr, ba}
+                  Enum.reduce(ea, base_call, fn a, acc -> {:call, 1, acc, [a]} end)
 
                 true ->
                   # Fallback one-by-one (Should never be hit for typed methods)
@@ -993,8 +1143,30 @@ defmodule Phi.Codegen do
 
     result ||
       (
-        accessor_call = generate_static_call(real_name, mod, 1, [], current_mod)
-        Enum.reduce(erl_args, accessor_call, fn arg, acc -> {:call, 1, acc, [arg]} end)
+        if base_name == "quickCheck" do
+          IO.puts("DEBUG quickCheck: FALLING INTO generate_dispatch_call result=nil fallback")
+        end
+
+        is_method = Map.has_key?(global_env.member_to_class, real_name)
+
+        if is_method do
+          accessor_call = generate_static_call(real_name, mod, 1, [], current_mod)
+          Enum.reduce(erl_args, accessor_call, fn arg, acc -> {:call, 1, acc, [arg]} end)
+        else
+          {_, scheme, _, _} = get_info(real_name, global_env)
+          {num_dicts, num_args} = if scheme, do: split_arity(scheme), else: {0, 0}
+          total_arity = num_dicts + num_args
+          # Assume NO DICT is provided externally! This means the call is fundamentally faulty
+          # if we compile it statically. We should throw or pass an atom?
+          # Actually, if we're here, we can generate a static call missing the dictionary.
+          generate_static_call(
+            base_name,
+            mod,
+            total_arity,
+            [{:atom, 1, :no_dict_resolved} | erl_args],
+            current_mod
+          )
+        end
       )
   end
 

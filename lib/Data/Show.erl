@@ -12,7 +12,7 @@
 %% The Show FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('Show').
+-module('Data.Show.FFI').
 
 -export([ showAtomImpl/1
         , showIntImpl/1

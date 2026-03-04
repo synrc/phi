@@ -12,7 +12,7 @@
 %% The Foreign FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('Foreign').
+-module('Foreign.FFI').
 
 -include("Foreign.hrl").
 

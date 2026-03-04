@@ -12,7 +12,7 @@
 %% The UTF-8 String FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('String').
+-module('Data.String.FFI').
 
 -include("../Foreign/Maybe.hrl").
 

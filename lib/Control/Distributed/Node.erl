@@ -12,7 +12,7 @@
 %% The Node FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('Node').
+-module('Control.Distributed.Node.FFI').
 
 -include("../../Foreign.hrl").
 

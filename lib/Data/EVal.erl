@@ -1,4 +1,4 @@
--module('EVal').
+-module('Data.EVal.FFI').
 
 -export([toEVal/1, fromEVal/1]).
 

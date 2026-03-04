@@ -12,7 +12,7 @@
 %% The Application Callback FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('Callback').
+-module('Control.Application.Callback.FFI').
 
 -include("../../Foreign.hrl").
 

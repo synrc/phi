@@ -12,7 +12,7 @@
 %% The Printf FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('Printf').
+-module('System.IO.Printf.FFI').
 
 -include("../../Foreign.hrl").
 

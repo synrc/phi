@@ -12,7 +12,7 @@
 %% The Application Config FFI.
 %%
 %%---------------------------------------------------------------------------
--module('Config').
+-module('Control.Application.Config.FFI').
 
 -export([ getAtom/2
         , getBool/2

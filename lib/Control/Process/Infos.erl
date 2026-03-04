@@ -12,7 +12,7 @@
 %% The Process Infos FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('Infos').
+-module('Control.Process.Infos.FFI').
 
 -include("../../Foreign.hrl").
 

@@ -12,7 +12,7 @@
 %% The Array FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('Array').
+-module('Data.Array.FFI').
 
 -export([ new/1
         , arrayFoldl/3

@@ -12,7 +12,7 @@
 %% The Bits FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('Bits').
+-module('Data.Bits.FFI').
 
 -export([ 'band'/2
         , 'bor'/2

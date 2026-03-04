@@ -12,7 +12,7 @@
 %% The FilePath FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('FilePath').
+-module('System.FilePath.FFI').
 
 -include("../Foreign.hrl").
 

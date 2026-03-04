@@ -17,7 +17,7 @@
 %%
 %% %CopyrightEnd%
 %%
--module('Impl').
+-module('Control.Behaviour.Supervisor.Impl.FFI').
 
 -include("Impl.hrl").
 

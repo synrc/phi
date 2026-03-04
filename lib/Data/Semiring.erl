@@ -12,7 +12,7 @@
 %% The Semiring Module.
 %%
 %%---------------------------------------------------------------------------
--module('Semiring').
+-module('Data.Semiring.FFI').
 
 -export([ addInt/2
         , mulInt/2

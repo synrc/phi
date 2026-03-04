@@ -12,7 +12,7 @@
 %% The Erlang VM FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('VM').
+-module('System.VM.FFI').
 
 -include("../Foreign.hrl").
 

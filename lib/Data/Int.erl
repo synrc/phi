@@ -1,4 +1,4 @@
--module('Int').
+-module('Data.Int.FFI').
 
 -export([toFloat/1]).
 

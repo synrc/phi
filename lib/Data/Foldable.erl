@@ -12,7 +12,7 @@
 %% The Foldable FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('Foldable').
+-module('Data.Foldable.FFI').
 
 -export([ foldlListImpl/3
         , foldrListImpl/3

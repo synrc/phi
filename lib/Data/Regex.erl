@@ -1,5 +1,5 @@
 
--module('Regex').
+-module('Data.Regex.FFI').
 -export([compile/2
         , inspect/1
         , replace/4

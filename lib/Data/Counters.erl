@@ -12,7 +12,7 @@
 %% The Counters FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('Counters').
+-module('Data.Counters.FFI').
 
 -include("../Foreign.hrl").
 

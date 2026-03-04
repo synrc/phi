@@ -12,7 +12,7 @@
 %% The Time FFI Module.
 %%
 %%---------------------------------------------------------------------------
--module('Time').
+-module('Data.Time.FFI').
 
 -include("../Foreign.hrl").
 

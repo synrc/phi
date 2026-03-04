@@ -1,4 +1,4 @@
--module('Read').
+-module('Data.Read.FFI').
 
 -export([
     readIntImpl/1, 

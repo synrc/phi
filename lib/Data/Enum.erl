@@ -12,7 +12,7 @@
 %% The Enum FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('Enum').
+-module('Data.Enum.FFI').
 
 -export([ enumCharSucc/1
         , enumCharPred/1

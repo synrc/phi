@@ -12,7 +12,7 @@
 %% The OS FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('OS').
+-module('System.OS.FFI').
 
 -include("../Foreign.hrl").
 

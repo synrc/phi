@@ -12,7 +12,7 @@
 %% The Process Flag FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('Flags').
+-module('Control.Process.Flags.FFI').
 
 -include("../../Foreign.hrl").
 

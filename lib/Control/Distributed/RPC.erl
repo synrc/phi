@@ -12,7 +12,7 @@
 %% The RPC FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('RPC').
+-module('Control.Distributed.RPC.FFI').
 
 -include("../../Foreign.hrl").
 

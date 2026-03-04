@@ -12,7 +12,7 @@
 %% The Monad FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('Monad').
+-module('Control.Monad.FFI').
 
 -export([ applyListImpl/2
         , listAppend/2

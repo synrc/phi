@@ -12,7 +12,7 @@
 %% The Set FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('Set').
+-module('Data.Set.FFI').
 
 -export([ singleton/1
         , fold/3

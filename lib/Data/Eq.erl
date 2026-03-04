@@ -12,7 +12,7 @@
 %% The Eq FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('Eq').
+-module('Data.Eq.FFI').
 
 -export([ eqAtomImpl/2
         , eqBoolImpl/2

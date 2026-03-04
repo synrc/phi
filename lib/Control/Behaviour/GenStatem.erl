@@ -12,7 +12,7 @@
 %% The GenStatem FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('GenStatem').
+-module('Control.Behaviour.GenStatem.FFI').
 
 -include("../../Foreign.hrl").
 

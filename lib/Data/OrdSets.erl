@@ -13,7 +13,7 @@
 %% The OrdSet FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('OrdSets').
+-module('Data.OrdSets.FFI').
 
 -type ordset(T) :: [T].
 

@@ -12,7 +12,7 @@
 %% The Ring Module.
 %%
 %%---------------------------------------------------------------------------
--module('Ring').
+-module('Data.Ring.FFI').
 
 -export([ intSub/2
         , floatSub/2

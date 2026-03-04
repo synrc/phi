@@ -12,7 +12,7 @@
 %% The GC FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('GC').
+-module('Control.Process.GC.FFI').
 
 -include("../../Foreign.hrl").
 

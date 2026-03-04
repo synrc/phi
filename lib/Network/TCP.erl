@@ -12,7 +12,7 @@
 %% The TCP FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('TCP').
+-module('Network.TCP.FFI').
 
 -include("../Foreign.hrl").
 

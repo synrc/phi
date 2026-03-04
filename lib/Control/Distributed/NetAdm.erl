@@ -12,7 +12,7 @@
 %% The NetAdm FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('NetAdm').
+-module('Control.Distributed.NetAdm.FFI').
 
 -include("../../Foreign.hrl").
 

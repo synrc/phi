@@ -12,7 +12,7 @@
 %% The GenEvent FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('GenEvent').
+-module('Control.Behaviour.GenEvent.FFI').
 
 -include("../../Foreign.hrl").
 

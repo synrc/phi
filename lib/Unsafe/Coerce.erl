@@ -13,7 +13,7 @@
 %% The TCP FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('Coerce').
+-module('Unsafe.Coerce.FFI').
 
 -export([unsafeCoerce/1]).
 

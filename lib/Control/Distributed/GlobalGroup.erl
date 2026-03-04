@@ -1,4 +1,4 @@
--module('GlobalGroup').
+-module('Control.Distributed.GlobalGroup.FFI').
 
 -include("../../Foreign.hrl").
 

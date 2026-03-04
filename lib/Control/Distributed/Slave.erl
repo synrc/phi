@@ -12,7 +12,7 @@
 %% The Slave FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('Slave').
+-module('Control.Distributed.Slave.FFI').
 
 -include("../../Foreign.hrl").
 

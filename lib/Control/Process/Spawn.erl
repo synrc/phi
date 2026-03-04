@@ -12,7 +12,7 @@
 %% The Spawn FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('Spawn').
+-module('Control.Process.Spawn.FFI').
 
 -include("../../Foreign.hrl").
 

@@ -125,8 +125,8 @@ defmodule Mix.Tasks.Phi.Test do
 
   defp run_test_main do
     try do
-      # tests/Test.hm → module :test → main/0 returns IO ()
-      io_action = apply(:test, :main, [])
+      # tests/Test.hm → module Test → main/0 returns IO ()
+      io_action = apply(:Test, :main, [])
 
       if is_function(io_action, 0) do
         io_action.()
@@ -136,8 +136,8 @@ defmodule Mix.Tasks.Phi.Test do
     rescue
       e ->
         case e do
-          %ErlangError{original: {:undef, [{:test, :main, _, _} | _]}} ->
-            IO.puts("Could not find test:main/0 — was tests/Test.hm compiled?")
+          %ErlangError{original: {:undef, [{:Test, :main, _, _} | _]}} ->
+            IO.puts("Could not find Test:main/0 — was tests/Test.hm compiled?")
 
           _ ->
             IO.puts("Error running tests: #{Exception.message(e)}")

@@ -12,7 +12,7 @@
 %% The Application Resource FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('Resource').
+-module('Control.Application.Resource.FFI').
 
 -include("../../Foreign.hrl").
 

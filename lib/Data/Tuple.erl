@@ -12,7 +12,7 @@
 %% The Tuple FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('Tuple').
+-module('Data.Tuple.FFI').
 
 %%TODO: Deprecated later.
 

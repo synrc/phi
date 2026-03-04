@@ -12,7 +12,7 @@
 %% The GenServer Proxy FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('Proxy').
+-module('Control.Behaviour.GenServer.Proxy.FFI').
 
 -behaviour(gen_server).
 

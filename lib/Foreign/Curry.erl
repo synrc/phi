@@ -12,7 +12,7 @@
 %% The Curry module.
 %%
 %%---------------------------------------------------------------------------
--module('Curry').
+-module('Foreign.Curry.FFI').
 
 -include("../Foreign.hrl").
 

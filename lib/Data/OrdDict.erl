@@ -13,7 +13,7 @@
 %% The OrdDict FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('OrdDict').
+-module('Data.OrdDict.FFI').
 
 -include("../Foreign/Maybe.hrl").
 

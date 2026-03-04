@@ -12,7 +12,7 @@
 %% The Random FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('Random').
+-module('System.Random.FFI').
 
 -include("../Foreign.hrl").
 

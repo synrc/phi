@@ -12,7 +12,7 @@
 %% The Supervisor FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('Supervisor').
+-module('Control.Behaviour.Supervisor.FFI').
 
 -include("../../Foreign.hrl").
 -include("./Supervisor/Impl.hrl").

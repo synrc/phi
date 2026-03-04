@@ -12,7 +12,7 @@
 %% The Functor FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('Functor').
+-module('Data.Functor.FFI').
 
 -export([mapListImpl/2]).
 

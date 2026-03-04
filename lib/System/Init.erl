@@ -12,7 +12,7 @@
 %% The System Init FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('Init').
+-module('System.Init.FFI').
 
 -include("../Foreign.hrl").
 

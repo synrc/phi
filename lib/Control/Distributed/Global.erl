@@ -12,7 +12,7 @@
 %% The Global FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('Global').
+-module('Control.Distributed.Global.FFI').
 
 -include("../../Foreign.hrl").
 

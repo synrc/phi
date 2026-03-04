@@ -12,7 +12,7 @@
 %% The NetKernel FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('NetKernel').
+-module('Control.Distributed.NetKernel.FFI').
 
 -include("../../Foreign.hrl").
 

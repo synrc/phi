@@ -12,7 +12,7 @@
 %% The GenStatem Behaviour FFI.
 %%
 %%---------------------------------------------------------------------------
--module('Proxy').
+-module('Control.Behaviour.GenStatem.Proxy.FFI').
 
 -include("../../../Foreign.hrl").
 

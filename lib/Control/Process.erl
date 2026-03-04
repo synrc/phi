@@ -12,7 +12,7 @@
 %% The Process FFI module.
 %%
 %%---------------------------------------------------------------------------
--module('Process').
+-module('Control.Process.FFI').
 
 -include("../Foreign.hrl").
 

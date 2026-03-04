@@ -12,7 +12,7 @@
 %% The Supervisor Proxy FFI.
 %%
 %%---------------------------------------------------------------------------
--module('Proxy').
+-module('Control.Behaviour.Supervisor.Proxy.FFI').
 
 -behaviour(supervisor).
 

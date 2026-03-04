@@ -89,7 +89,6 @@ defmodule Mix.Tasks.Phi.Compile do
     if stdlib_only do
       IO.puts("Stdlib written to #{out_dir}/. Done.")
     else
-      keys = Phi.Typechecker.Env.all_keys(stdlib_env)
       IO.puts("Compiling #{length(files)} user file(s)...")
       {_user_env, compiled_mods} = multi_pass(files, stdlib_env, out_dir, 1)
       summarise(compiled_mods, out_dir)

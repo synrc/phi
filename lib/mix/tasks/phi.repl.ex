@@ -6,7 +6,7 @@ defmodule Mix.Tasks.Phi.Repl do
     IO.puts("Phi Interactive REPL")
     IO.puts("Type :quit to exit, :reset to clear bindings")
 
-    files = Path.wildcard("lib/**/*.hm")
+    files = Path.wildcard("stdlib/**/*.phi")
     IO.puts("Loading Standard Library (#{length(files)} files)...")
 
     base_env = load_files(files, Phi.Typechecker.Env.new(), 1)
@@ -18,19 +18,25 @@ defmodule Mix.Tasks.Phi.Repl do
 
   defp repl_loop(env, imports, prev_decls, line_num) do
     input = IO.gets("ϕ> ")
+
     cond do
       input == :eof ->
         :ok
+
       input in ["", "\n"] ->
         repl_loop(env, imports, prev_decls, line_num)
+
       String.trim(input) == ":quit" ->
         :ok
+
       String.trim(input) == ":reset" ->
         IO.puts("Bindings cleared.")
         repl_loop(env, imports, [], line_num)
+
       String.starts_with?(String.trim(input), "import ") ->
         new_imports = imports ++ [String.trim(input)]
         repl_loop(env, new_imports, prev_decls, line_num)
+
       true ->
         {new_env, new_decls} = evaluate_line(input, env, imports, prev_decls, line_num)
         repl_loop(new_env, imports, new_decls, line_num + 1)
@@ -43,24 +49,29 @@ defmodule Mix.Tasks.Phi.Repl do
     trimmed = String.trim(input)
 
     # Try as expression first: repl_val = <input>
-    expr_source = "module Repl#{line_num} where\nimport Prelude\n#{imports_str}\n#{decls_str}repl_val = #{trimmed}"
+    expr_source =
+      "module Repl#{line_num} where\nimport Prelude\n#{imports_str}\n#{decls_str}repl_val = #{trimmed}"
 
     case try_compile(expr_source, env) do
       {:ok, mod, bin, new_env} ->
         :code.load_binary(mod, ~c"#{mod}.beam", bin)
         mod_atom = module_atom(line_num)
+
         if :erlang.function_exported(mod_atom, :repl_val, 0) do
           result = try_eval(mod_atom, :repl_val)
+
           case result do
             {:ok, val} -> print_value(val)
             {:error, e} -> IO.puts("Runtime error: #{inspect(e)}")
           end
         end
+
         {new_env, prev_decls}
 
       {:error, _} ->
         # Try as declaration(s)
-        decl_source = "module Repl#{line_num} where\nimport Prelude\n#{imports_str}\n#{decls_str}#{trimmed}\nrepl_val = unit"
+        decl_source =
+          "module Repl#{line_num} where\nimport Prelude\n#{imports_str}\n#{decls_str}#{trimmed}\nrepl_val = unit"
 
         case try_compile(decl_source, env) do
           {:ok, _mod, bin, new_env} ->
@@ -94,6 +105,8 @@ defmodule Mix.Tasks.Phi.Repl do
   defp try_eval(mod, fun) do
     try do
       val = apply(mod, fun, [])
+      # Execute IO actions: Phi represents IO as fun/0; unwrap up to 2 levels
+      val = if is_function(val, 0), do: val.(), else: val
       val = if is_function(val, 0), do: val.(), else: val
       {:ok, val}
     rescue
@@ -113,7 +126,10 @@ defmodule Mix.Tasks.Phi.Repl do
     input
     |> String.split("\n")
     |> Enum.flat_map(fn line ->
-      case Regex.run(~r/^([a-z_][a-zA-Z0-9_']*)\s*(?:[a-z_][a-zA-Z0-9_']*\s*)*=/, String.trim(line)) do
+      case Regex.run(
+             ~r/^([a-z_][a-zA-Z0-9_']*)\s*(?:[a-z_][a-zA-Z0-9_']*\s*)*=/,
+             String.trim(line)
+           ) do
         [_, name] -> [name]
         _ -> []
       end
@@ -126,9 +142,11 @@ defmodule Mix.Tasks.Phi.Repl do
     |> Enum.flat_map(fn {_, errs} -> Enum.map(errs, &inspect/1) end)
     |> Enum.join(", ")
   end
+
   defp format_error(reason), do: inspect(reason)
 
   defp load_files([], env, _pass), do: env
+
   defp load_files(files, env, pass) do
     IO.write("  Pass #{pass}...")
 
@@ -139,6 +157,7 @@ defmodule Mix.Tasks.Phi.Repl do
             {:ok, mod, bin, _, e2} ->
               :code.load_binary(mod, ~c"#{mod}.beam", bin)
               {succ + 1, fails, e2}
+
             {:error, err} ->
               {succ, [{file, err} | fails], current_env}
           end
@@ -154,9 +173,11 @@ defmodule Mix.Tasks.Phi.Repl do
     cond do
       length(failures) == 0 ->
         new_env
+
       successes == 0 ->
         IO.puts("  Stuck on #{length(failures)} files (run mix phi.compile for details)")
         new_env
+
       true ->
         load_files(Enum.map(failures, &elem(&1, 0)), new_env, pass + 1)
     end

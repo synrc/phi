@@ -22,7 +22,7 @@ module System.IO.Printf
   , render
   ) where
 {-
-`printf` in Hamler is defined like in Haskell. It has type `Printf r => String -> r`. The String argument represent how the format of the output, just like printfs in ohter languages.
+`printf` in Phi is defined like in Haskell. It has type `Printf r => String -> r`. The String argument represent how the format of the output, just like printfs in ohter languages.
 
 exmaple 1:
 

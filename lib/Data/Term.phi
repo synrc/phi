@@ -17,7 +17,7 @@ module Data.Term where
 import Unsafe.Coerce (unsafeCoerce)
 
 -- | A piece of data of any datatype is called a Term in Erlang.
--- we use Term as top type of Hamler
+-- we use Term as top type of Phi
 foreign import data Term :: Type
 
 toTerm :: forall a. a -> Term

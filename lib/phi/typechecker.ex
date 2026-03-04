@@ -39,10 +39,10 @@ defmodule Phi.Typechecker do
       }
     end
 
-    def extend(%Env{bindings: b} = env, module, name, scheme, hamler_mod \\ nil) do
+    def extend(%Env{bindings: b} = env, module, name, scheme, mod \\ nil) do
       # Store as {module, scheme}
       b1 = Map.put(b, name, {module, scheme})
-      b2 = if hamler_mod, do: Map.put(b1, "#{hamler_mod}.#{name}", {module, scheme}), else: b1
+      b2 = if mod, do: Map.put(b1, "#{mod}.#{name}", {module, scheme}), else: b1
       %{env | bindings: b2}
     end
 

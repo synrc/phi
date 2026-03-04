@@ -18,10 +18,10 @@ writeAndReadTest = do
 appendTest :: IO (Bool)
 appendTest = do
     writeFile filepath <<"hello, world">>
-    appendFile filepath <<" Hamler, Haskell">>
+    appendFile filepath <<" Phi, Haskell">>
     rf <- readFile filepath
     deleteFile filepath
-    pure $ rf == <<"hello, world Hamler, Haskell">>
+    pure $ rf == <<"hello, world Phi, Haskell">>
 
 test :: TestGroup (Integer -> IO TestResult)
 test = Exe [

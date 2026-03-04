@@ -1,14 +1,14 @@
 defmodule Mix.Tasks.Phi.Test do
   @moduledoc """
-  Compiles the Hamler stdlib (lib/**/*.hm) and then the Hamler test suite
-  (tests/**/*.hm) using the same multi-pass environment accumulation strategy,
+  Compiles the Phi stdlib (lib/**/*.phi) and then the Phi test suite
+  (tests/**/*.phi) using the same multi-pass environment accumulation strategy,
   then executes the test main function.
 
   Usage: mix phi.test
   """
   use Mix.Task
 
-  @shortdoc "Run Hamler native QuickCheck tests"
+  @shortdoc "Run Phi native QuickCheck tests"
 
   def run(_args) do
     Mix.Task.run("compile", [])
@@ -18,14 +18,14 @@ defmodule Mix.Tasks.Phi.Test do
     IO.puts("\n=== Phi Native Test Runner ===\n")
 
     # Step 1: compile stdlib
-    IO.puts("--- Compiling stdlib (lib/**/*.hm) ---")
-    lib_files = Path.wildcard("lib/**/*.hm")
+    IO.puts("--- Compiling stdlib (lib/**/*.phi) ---")
+    lib_files = Path.wildcard("lib/**/*.phi")
     IO.puts("Found #{length(lib_files)} stdlib files.")
     stdlib_env = multi_pass_compile(lib_files, Phi.Typechecker.Env.new(), 1, "lib")
 
     # Step 2: compile test suite
-    IO.puts("\n--- Compiling test suite (tests/**/*.hm) ---")
-    test_files = Path.wildcard("tests/**/*.hm")
+    IO.puts("\n--- Compiling test suite (tests/**/*.phi) ---")
+    test_files = Path.wildcard("tests/**/*.phi")
     IO.puts("Found #{length(test_files)} test files.")
     _test_env = multi_pass_compile(test_files, stdlib_env, 1, "tests")
 

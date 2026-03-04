@@ -8,16 +8,16 @@ defmodule Mix.Tasks.CompileStdlib do
   """
   use Mix.Task
 
-  @shortdoc "Compile all Hamler stdlib .hm files in dependency order"
+  @shortdoc "Compile all Phi stdlib .phi files in dependency order"
 
   def run(_args) do
     Mix.Task.run("compile", [])
 
-    files = Path.wildcard("lib/**/*.hm") |> Enum.sort()
+    files = Path.wildcard("lib/**/*.phi") |> Enum.sort()
     total = length(files)
 
     IO.puts("\n#{IO.ANSI.bright()}=== Phi Stdlib Compilation Report ===#{IO.ANSI.reset()}")
-    IO.puts("Found #{total} .hm files\n")
+    IO.puts("Found #{total} .phu files\n")
 
     # Build dependency graph and sort topologically
     module_infos = Enum.map(files, &extract_module_info/1)

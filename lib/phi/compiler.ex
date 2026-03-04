@@ -16,7 +16,7 @@ defmodule Phi.Compiler do
       foreign_mod =
         if source_path do
           :code.add_patha(~c"ebin")
-          erl_path = String.replace(source_path, ".hm", ".erl")
+          erl_path = String.replace(source_path, ".phi", ".erl")
 
           if File.exists?(erl_path) do
             erl_content = File.read!(erl_path)
@@ -74,6 +74,12 @@ defmodule Phi.Compiler do
         {:error, _} = err ->
           err
       end
+    else
+      {:error, _reason} = err when tuple_size(err) == 2 ->
+        err
+
+      err ->
+        {:error, err}
     end
   end
 

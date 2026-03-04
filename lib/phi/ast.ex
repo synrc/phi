@@ -131,6 +131,18 @@ defmodule Phi.AST do
     defstruct [:name]
   end
 
+  defmodule BinderAs do
+    defstruct [:name, :binder]
+  end
+
+  defmodule BinderAtom do
+    defstruct [:value]
+  end
+
+  defmodule BinderBinary do
+    defstruct [:binder]
+  end
+
   defmodule BinderConstructor do
     defstruct [:name, :args]
   end
@@ -145,5 +157,13 @@ defmodule Phi.AST do
 
   defmodule ExprRecordUpdate do
     defstruct [:base, :fields]  # base is an expression, fields is [{name_string, expr}, ...]
+  end
+
+  defmodule ExprBinary do
+    defstruct [:value]  # for binary values like <<111, 122>> or <<"binary">>
+  end
+
+  defmodule ExprReceive do
+    defstruct [:clauses, :after_clause]
   end
 end

@@ -8,9 +8,6 @@ import Data.Digraph as G
 emptyGraph :: [G.GraphType] -> IO (G.Graph Integer Integer)
 emptyGraph = G.new
 
-{-
-   (1) <-2-1-> (2) --3-> (3)
--}
 getBaseGraph1 :: IO (G.Graph Integer Integer)
 getBaseGraph1 = do
   g <- emptyGraph []

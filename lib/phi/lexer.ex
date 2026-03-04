@@ -75,6 +75,8 @@ defmodule Phi.Lexer do
     lex(rest2, line, col + 1 + String.length(ident), [{:atom, line, col, ident} | acc])
   end
 
+  defp lex([?:, ?" | rest], line, col, acc), do: lex_quoted_atom(rest, line, col + 2, acc, [])
+
   defp lex([?: | rest], line, col, acc),
     do: lex(rest, line, col + 1, [{:operator, line, col, ":"} | acc])
 
@@ -101,6 +103,7 @@ defmodule Phi.Lexer do
     ident = List.to_string(ident_chars)
 
     case ident do
+      "_" -> lex(rest2, line, col + String.length(ident), [{:wildcard, line, col} | acc])
       "module" -> lex(rest2, line, col + String.length(ident), [{:module, line, col} | acc])
       "where" -> lex(rest2, line, col + String.length(ident), [{:where, line, col} | acc])
       "import" -> lex(rest2, line, col + String.length(ident), [{:import, line, col} | acc])
@@ -123,6 +126,8 @@ defmodule Phi.Lexer do
       "case" -> lex(rest2, line, col + String.length(ident), [{:case, line, col} | acc])
       "of" -> lex(rest2, line, col + String.length(ident), [{:of, line, col} | acc])
       "do" -> lex(rest2, line, col + String.length(ident), [{:do, line, col} | acc])
+      "receive" -> lex(rest2, line, col + String.length(ident), [{:receive, line, col} | acc])
+      "after" -> lex(rest2, line, col + String.length(ident), [{:after, line, col} | acc])
       "forall" -> lex(rest2, line, col + String.length(ident), [{:forall, line, col} | acc])
       _ -> lex(rest2, line, col + String.length(ident), [{:var_ident, line, col, ident} | acc])
     end
@@ -220,4 +225,21 @@ defmodule Phi.Lexer do
   end
 
   defp take_string([]), do: {[], []}
+
+  defp lex_quoted_atom([?" | rest], line, col, outer_acc, atom_acc) do
+    atom_str = List.to_string(Enum.reverse(atom_acc))
+    start_col = col - String.length(atom_str) - 2
+    lex(rest, line, col + 1, [{:atom, line, start_col, atom_str} | outer_acc])
+  end
+
+  defp lex_quoted_atom([?\\, c | rest], line, col, outer_acc, atom_acc) do
+    lex_quoted_atom(rest, line, col + 1, outer_acc, [c, ?\\ | atom_acc])
+  end
+
+  defp lex_quoted_atom([c | rest], line, col, outer_acc, atom_acc) do
+    lex_quoted_atom(rest, line, col + 1, outer_acc, [c | atom_acc])
+  end
+
+  defp lex_quoted_atom([], _line, _col, _outer_acc, _atom_acc),
+    do: {:error, "Unterminated quoted atom"}
 end

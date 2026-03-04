@@ -37,6 +37,7 @@ import System.IO (printf, println)
 import System.Random(randomRIO)
 import Data.Binary (listToBin)
 import System.Error (catchException)
+import Data.Array as Array
 
 foreign import data Rand :: Type
 
@@ -163,6 +164,9 @@ instance (Arbitrary a, Arbitrary b) => Arbitrary (a, b) where
 
 instance Arbitrary a => Arbitrary [a] where
   arbitrary = sized (\n -> choose (0,n) >>= vector)
+
+instance Arbitrary v => Arbitrary (Array.Array v) where
+  arbitrary = Array.fromList <$> arbitrary
 
 instance (Coarbitrary a, Arbitrary b) => Arbitrary (a -> b) where
   arbitrary = promote (\x -> x `coarbitrary` arbitrary)

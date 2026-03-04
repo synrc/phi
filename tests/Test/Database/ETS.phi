@@ -104,7 +104,7 @@ p :: Atom
 p = :"$1"
 
 p' :: (Atom, Atom)
-p' = (:_, :_)
+p' = (:"_", :"_")
 
 ematch :: [Integer] -> IO Boolean
 ematch [] = pure true

@@ -29,6 +29,12 @@ defmodule Phi.Layout do
 
       [{layout_type, layout_col, layout_depth} | ctx_rest] ->
         cond do
+          # Close `do`/`of`/`receive` blocks on `where` at the same indentation.
+          # This prevents injecting `; where` inside the block.
+          elem(token, 0) == :where and layout_type in [:do, :of, :receive] and col == layout_col and
+              depth == layout_depth ->
+            do_resolve(tokens, [{:right_brace, line, col} | acc], ctx_rest, depth)
+
           # 1. Indentation outdent takes priority
           col < layout_col and depth <= layout_depth ->
             do_resolve(tokens, [{:right_brace, line, col} | acc], ctx_rest, depth)
@@ -59,11 +65,15 @@ defmodule Phi.Layout do
               [{:left_brace, _, _} | _] ->
                 do_resolve_token(tokens, acc, ctx, depth)
 
-              _ when elem(token, 0) in [:in, :else_kw, :then_kw, :of] ->
+              _ when elem(token, 0) in [:in, :else_kw, :then_kw, :of, :receive, :after] ->
                 do_resolve_token(tokens, acc, ctx, depth)
 
               _ ->
-                do_resolve_token(tokens, [{:semicolon, line, col} | acc], ctx, depth)
+                if elem(token, 0) == :var_ident and is_function_definition?(tokens) do
+                  do_resolve_token(tokens, [{:semicolon, line, col} | acc], ctx, depth)
+                else
+                  do_resolve_token(tokens, [{:semicolon, line, col} | acc], ctx, depth)
+                end
             end
 
           true ->
@@ -76,6 +86,25 @@ defmodule Phi.Layout do
   defp is_delimiter?({:right_square, _, _}), do: true
   defp is_delimiter?({:right_brace, _, _}), do: true
   defp is_delimiter?(_), do: false
+
+  # Check if tokens represent a function definition: pattern = expr
+  defp is_function_definition?([{:var_ident, _, _, _} | rest]) do
+    # Look for := in the rest of the tokens (function definition)
+    Enum.any?(rest, fn
+      {:=, _, _} -> true
+      _ -> false
+    end)
+  end
+
+  defp is_function_definition?([{:proper_name, _, _, _} | rest]) do
+    # Look for := in the rest of the tokens (function definition)
+    Enum.any?(rest, fn
+      {:=, _, _} -> true
+      _ -> false
+    end)
+  end
+
+  defp is_function_definition?(_), do: false
 
   defp do_resolve_token([{:left_paren, line, col} | rest], acc, ctx, depth) do
     do_resolve(rest, [{:left_paren, line, col} | acc], ctx, depth + 1)
@@ -181,6 +210,26 @@ defmodule Phi.Layout do
           rest,
           [{:left_brace, next_line, next_col} | acc],
           [{:of, next_col, depth} | ctx],
+          depth
+        )
+    end
+  end
+
+  defp do_resolve_token([{:receive, line, col} | rest], acc, ctx, depth) do
+    acc = [{:receive, line, col} | acc]
+
+    case rest do
+      [] ->
+        do_resolve([], acc, ctx, depth)
+
+      [next | _] ->
+        next_line = elem(next, 1)
+        next_col = elem(next, 2)
+
+        do_resolve(
+          rest,
+          [{:left_brace, next_line, next_col} | acc],
+          [{:receive, next_col, depth} | ctx],
           depth
         )
     end

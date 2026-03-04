@@ -1,6 +1,8 @@
 defmodule CompileAll do
   def run do
-    all_files = Path.wildcard("lib/**/*.hm")
+    lib_files = Path.wildcard("stdlib/**/*.phi")
+    test_files = Path.wildcard("tests/**/*.phi")
+    all_files = lib_files ++ test_files
     IO.puts "Found #{length(all_files)} files."
 
     File.mkdir_p!("ebin")

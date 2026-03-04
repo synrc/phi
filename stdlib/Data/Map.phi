@@ -15,56 +15,9 @@
 module Data.Map where
 
 import Data.Maybe (Maybe)
-import Control.Monad ((<$>), liftA1)
 import Foreign (ffi0, ffi1, ffi2, ffi3, ffi4)
-import Test.QuickCheck (arbitrary, class Arbitrary)
-import Data.Eq (class Eq)
-import Data.Ord (class Ord, compare)
-import Data.Show (class Show, show)
-import Data.Read (class Read, read)
-import Data.Semigroup (class Semigroup, (<>))
-import Data.Monoid (class Monoid, mempty)
-import Data.Functor (class Functor, map)
-import Data.Foldable (class Foldable, foldl, foldr)
-import Data.Traversable (class Traversable, sequence)
 
 foreign import data Map :: Type -> Type -> Type
-
-instance (Show a, Show b) => Show (Map a b) where
-  show x = show (toList x)
-
-instance (Read a, Read b) => Read (Map a b) where
-  read x = fromList (read x)
-
-instance (Ord a, Ord b) => Ord (Map a b) where
-  compare x y = compare (toList x) (toList y)
-
-instance (Arbitrary k, Arbitrary v) => Arbitrary (Map k v) where
-  arbitrary = fromList <$> arbitrary
-
-instance Eq (Map a b) where
-  eq = eqMapImpl
-
-instance Functor (Map k) where
-  map f x = fromList (map (\(k, v) -> (k, f v)) (toList x))
-
-instance Foldable (Map k) where
-  foldl f init x = foldl (\acc (k, v) -> f acc v) init (toList x)
-  foldr f init x = foldr (\(k, v) acc -> f v acc) init (toList x)
-  foldMap f =  foldr (\x acc -> f x <> acc) mempty
-
-instance Traversable (Map k) where
-  traverse f ta = sequence (f <$> ta)
-  sequence x = liftA1 fromList (sequence (map lifting (toList x)))
-    where lifting (k, v) = liftA1 (\a -> (k, a)) v
-
-foreign import eqMapImpl :: forall a b. Map a b -> Map a b -> Boolean
-
-instance Semigroup (Map a b) where
-  append = merge
-
-instance Monoid (Map a b) where
-  mempty = empty
 
 -- | Returns a new empty map.
 empty :: forall k v. Map k v
@@ -80,13 +33,12 @@ foreign import isEmpty :: forall k v. Map k v -> Boolean
 isKey :: forall k v. k -> Map k v -> Boolean
 isKey = ffi2 :maps :is_key
 
--- | Same to `put` function.
-insert :: forall k v. k -> v -> Map k v -> Map k v
-insert = put
-
 -- | Insert the key-value pair into a map.
 put :: forall k v. k -> v -> Map k v -> Map k v
 put = ffi3 :maps :put
+
+insert :: forall k v. k -> v -> Map k v -> Map k v
+insert = put
 
 -- | Return the `Value` associated with `Key`. Throw exception if the `Key` does not exist.
 get :: forall k v. k -> Map k v -> v
@@ -94,10 +46,6 @@ get = ffi2 :maps :get
 
 -- | Return the `Value` associated with `Key`.
 foreign import lookup :: forall k v. k -> Map k v -> Maybe v
-
--- | TODO: docs later...
-foreign import mapWithKey :: forall k v. ((k, v) -> v) -> Map k v -> Map k v
--- map = ffi2 :maps :map
 
 -- | Test if a key is a member of a Map.
 member :: forall k v. k -> Map k v -> Boolean
@@ -108,6 +56,9 @@ foreign import notMember :: forall k v. k -> Map k v -> Boolean
 
 fold :: forall k v acc. ((k, v, acc) -> acc) -> acc -> Map k v -> acc
 fold = ffi3 :maps :fold
+
+mapWithKey :: forall k a b. (k -> a -> b) -> Map k a -> Map k b
+mapWithKey = ffi2 :maps :map
 
 -- | Update an existed key-value pair.
 update :: forall k v. k -> v -> Map k v -> Map k v

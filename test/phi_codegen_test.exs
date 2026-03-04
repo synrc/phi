@@ -20,7 +20,7 @@ defmodule PhiCodegenTest do
     # Compile the forms to a BEAM binary to prove they are valid Erlang AST!
     case :compile.forms(forms, [:return_errors]) do
       {:ok, mod_name, binary} when is_binary(binary) ->
-        assert mod_name == :core
+        assert mod_name == :Core
 
         # We can dynamically load the compiled module into the VM!
         :code.load_binary(mod_name, ~c"#{mod_name}", binary)

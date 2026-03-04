@@ -361,7 +361,19 @@ defmodule Phi.Codegen do
         {mod, scheme, real_name, base_name}
 
       :error ->
-        throw({:unresolved_any_name, real_name})
+        if constructor_name?(real_name) do
+          base_name = real_name |> String.split(".") |> List.last()
+          {nil, nil, real_name, base_name}
+        else
+        if String.contains?(real_name, ".") do
+          parts = String.split(real_name, ".")
+          {mod_parts, [base_name]} = Enum.split(parts, length(parts) - 1)
+          mod = Enum.join(mod_parts, ".") |> String.to_atom()
+          {mod, nil, real_name, base_name}
+        else
+          throw({:unresolved_any_name, real_name})
+        end
+        end
     end
   end
 
@@ -417,6 +429,47 @@ defmodule Phi.Codegen do
 
   defp generate_expr(%AST.ExprAtom{value: v}, _, _, _, _, _), do: {:atom, 1, String.to_atom(v)}
 
+  defp generate_expr(%AST.ExprBinary{value: values}, _, _, _, _, _) do
+    bin_elements = Enum.map(values, fn
+      {:number, val} -> {:bin_element, 1, {:integer, 1, val}, :default, :default}
+      {:string, val} -> {:bin_element, 1, {:string, 1, String.to_charlist(val)}, :default, :default}
+    end)
+    {:bin, 1, bin_elements}
+  end
+
+  defp generate_expr(
+         %AST.ExprReceive{clauses: clauses, after_clause: after_clause},
+         local_env,
+         global_env,
+         current_mod,
+         name,
+         fix_env
+       ) do
+    # Generate receive clauses
+    erl_clauses =
+      Enum.map(clauses, fn {pattern, expr} ->
+        pattern_erl = generate_pattern(pattern)
+        clause_locals = MapSet.union(local_env, find_bound_vars(pattern, MapSet.new()))
+        expr_erl = generate_expr(expr, clause_locals, global_env, current_mod, name, fix_env)
+        {:clause, 1, [pattern_erl], [], [expr_erl]}
+      end)
+
+    # Generate after clause if present
+    case after_clause do
+      :none ->
+        {:receive, 1, erl_clauses}
+
+      {:ok, after_body} ->
+        after_erl = generate_expr(after_body, local_env, global_env, current_mod, name, fix_env)
+        {:receive, 1, erl_clauses, {:integer, 1, 0}, [after_erl]}
+
+      {:ok, timeout_expr, after_body} ->
+        timeout_erl = generate_expr(timeout_expr, local_env, global_env, current_mod, name, fix_env)
+        after_erl = generate_expr(after_body, local_env, global_env, current_mod, name, fix_env)
+        {:receive, 1, erl_clauses, timeout_erl, [after_erl]}
+    end
+  end
+
   defp generate_expr(%AST.ExprVar{name: "num_" <> ns}, _, _, _, _, _),
     do: {:integer, 1, String.to_integer(ns)}
 
@@ -436,6 +489,18 @@ defmodule Phi.Codegen do
   defp generate_expr(%AST.ExprVar{name: "undefined"}, _, _, _, _, _),
     do:
       {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :error}}, [{:atom, 1, :undefined}]}
+
+  defp generate_expr(
+         %AST.ExprDo{statements: statements},
+         local_env,
+         global_env,
+         current_mod,
+         name,
+         fix_env
+       ) do
+    desugared = desugar_do(statements)
+    generate_expr(desugared, local_env, global_env, current_mod, name, fix_env)
+  end
 
   defp generate_expr(%AST.ExprVar{name: name}, local_env, global_env, current_mod, _name, fix_env) do
     if Map.has_key?(fix_env, name) do
@@ -572,12 +637,6 @@ defmodule Phi.Codegen do
                 class_name = global_env.member_to_class[real_name] || extract_class_name(scheme)
                 dict_arg_name = find_dictionary(class_name, local_env)
 
-                if base_name == "quickCheck" do
-                  IO.puts(
-                    "DEBUG quickCheck: num_dicts: \#{num_dicts}, class_name: \#{class_name}, dict_arg_name: \#{dict_arg_name}, num_args: \#{num_args}, total_arity: \#{total_arity}"
-                  )
-                end
-
                 if class_name do
                   is_method = Map.has_key?(global_env.member_to_class, real_name)
 
@@ -607,24 +666,31 @@ defmodule Phi.Codegen do
                       )
                     end
                   else
-                    if base_name == "quickCheck" do
-                      IO.puts("DEBUG quickCheck: FALLING INTO generate_dispatch_call")
-                    end
+                    if is_method do
+                      generate_dispatch_call(
+                        real_name,
+                        mod,
+                        erl_args,
+                        class_name,
+                        global_env,
+                        current_mod
+                      )
+                    else
+                      # Constrained non-method with no dict in scope.
+                      # Preserve dict-first calling convention by wrapping:
+                      #   fun(D1..Dn) -> f(D1..Dn, args...) end
+                      dict_vars =
+                        Enum.map(1..num_dicts, fn i ->
+                          {:var, 1, String.to_atom("D#{i}")}
+                        end)
 
-                    generate_dispatch_call(
-                      real_name,
-                      mod,
-                      erl_args,
-                      class_name,
-                      global_env,
-                      current_mod
-                    )
+                      call =
+                        generate_static_call(base_name, mod, total_arity, dict_vars ++ erl_args, current_mod)
+
+                      {:fun, 1, {:clauses, [{:clause, 1, dict_vars, [], [call]}]}}
+                    end
                   end
                 else
-                  if base_name == "quickCheck" do
-                    IO.puts("DEBUG quickCheck: FALLING INTO static_call (class_name is nil)")
-                  end
-
                   final_args =
                     if dict_arg_name,
                       do: [{:var, 1, String.to_atom(dict_arg_name)} | erl_args],
@@ -793,6 +859,26 @@ defmodule Phi.Codegen do
   defp generate_expr(nil, _, _, _, _, _), do: {:atom, 1, :undefined}
   defp generate_expr(expr, _, _, _, _, _), do: raise("Unsupported: #{inspect(expr)}")
 
+  defp desugar_do([]), do: %AST.ExprVar{name: "unit"}
+
+  defp desugar_do([{:expr, expr}]), do: expr
+
+  defp desugar_do([{:bind, binder, expr}]),
+    do: %AST.ExprApp{func: %AST.ExprVar{name: "bind"}, arg: %AST.ExprTuple{elems: [expr, %AST.ExprLam{binder: binder, body: %AST.ExprVar{name: "unit"}}]}}
+
+  defp desugar_do([{:let, decls} | rest]) do
+    %AST.ExprLet{bindings: decls, body: desugar_do(rest)}
+  end
+
+  defp desugar_do([{:bind, binder, expr} | rest]) do
+    lam = %AST.ExprLam{binder: binder, body: desugar_do(rest)}
+    %AST.ExprApp{func: %AST.ExprApp{func: %AST.ExprVar{name: "bind"}, arg: expr}, arg: lam}
+  end
+
+  defp desugar_do([{:expr, expr} | rest]) do
+    %AST.ExprApp{func: %AST.ExprApp{func: %AST.ExprVar{name: "discard"}, arg: expr}, arg: desugar_do(rest)}
+  end
+
   defp constructor_name?(name) when is_binary(name) do
     last_part = name |> String.split(".") |> List.last()
     match?(<<first::utf8, _::binary>> when first >= ?A and first <= ?Z, last_part)
@@ -816,6 +902,13 @@ defmodule Phi.Codegen do
   defp generate_pattern(%AST.BinderVar{name: "char_" <> cs}),
     do: {:integer, 1, String.to_integer(cs)}
 
+  defp generate_pattern(%AST.BinderAtom{value: v}), do: {:atom, 1, String.to_atom(v)}
+
+  defp generate_pattern(%AST.BinderBinary{binder: b}) do
+    inner = generate_pattern(b)
+    {:bin, 1, [{:bin_element, 1, inner, :default, :default}]}
+  end
+
   defp generate_pattern(%AST.BinderVar{name: name}),
     do: {:var, 1, String.capitalize(name) |> String.to_atom()}
 
@@ -827,6 +920,10 @@ defmodule Phi.Codegen do
 
   defp generate_pattern(%AST.BinderTuple{elems: es}),
     do: {:tuple, 1, Enum.map(es, &generate_pattern/1)}
+
+  defp generate_pattern(%AST.BinderAs{name: name, binder: binder}) do
+    {:match, 1, {:var, 1, String.capitalize(name) |> String.to_atom()}, generate_pattern(binder)}
+  end
 
   defp generate_pattern(%AST.BinderConstructor{name: name, args: args}),
     do: {:tuple, 1, [{:atom, 1, String.to_atom(name)} | Enum.map(args, &generate_pattern/1)]}
@@ -883,6 +980,13 @@ defmodule Phi.Codegen do
   defp find_bound_vars(%AST.BinderVar{name: "str_" <> _}, acc), do: acc
   defp find_bound_vars(%AST.BinderVar{name: "char_" <> _}, acc), do: acc
   defp find_bound_vars(%AST.BinderVar{name: n}, acc), do: MapSet.put(acc, n)
+
+  defp find_bound_vars(%AST.BinderAtom{}, acc), do: acc
+
+  defp find_bound_vars(%AST.BinderBinary{binder: b}, acc), do: find_bound_vars(b, acc)
+
+  defp find_bound_vars(%AST.BinderAs{name: n, binder: b}, acc),
+    do: find_bound_vars(b, MapSet.put(acc, n))
 
   defp find_bound_vars(%AST.BinderConstructor{args: as}, acc),
     do: Enum.reduce(as, acc, &find_bound_vars/2)
@@ -991,12 +1095,6 @@ defmodule Phi.Codegen do
         if base_name == "map" and n > 1 and is_method, do: 1, else: 0
       end
 
-    if base_name == "<$>" or base_name == "map" do
-      IO.puts(
-        "DEBUG DISPATCH #{base_name} -> preferred_idx: #{preferred_idx}, scheme_present: #{scheme != nil}"
-      )
-    end
-
     dispatch_order =
       cond do
         n == 0 ->
@@ -1032,9 +1130,12 @@ defmodule Phi.Codegen do
                         %Type.TConstrained{class_name: cn, args: [%Type.TVar{id: vn} | _]} ->
                           {:var, 1, String.to_atom("Dict_#{cn}_#{vn}")}
 
+                        %Type.TConstrained{class_name: cn, args: [%Type.TCon{name: tn} | _]} ->
+                          {:var, 1, String.to_atom("Dict_#{cn}_#{tn}")}
+
                         _ ->
-                          # Fallback, might crash if unresolved but better than arity 0
-                          {:var, 1, :Dict_K}
+                          # Fallback: keep Erlang compilation working; will likely crash at runtime
+                          {:atom, 1, :undefined_dict}
                       end)
                     else
                       []
@@ -1143,9 +1244,6 @@ defmodule Phi.Codegen do
 
     result ||
       (
-        if base_name == "quickCheck" do
-          IO.puts("DEBUG quickCheck: FALLING INTO generate_dispatch_call result=nil fallback")
-        end
 
         is_method = Map.has_key?(global_env.member_to_class, real_name)
 
@@ -1277,6 +1375,31 @@ defmodule Phi.Codegen do
 
   defp find_used_vars(%AST.ExprIf{cond: c, then_br: t, else_br: e}, acc),
     do: find_used_vars(e, find_used_vars(t, find_used_vars(c, acc)))
+
+  defp find_used_vars(%AST.ExprDo{statements: stats}, acc) do
+    Enum.reduce(stats, acc, fn
+      {:bind, _binder, expr}, a -> find_used_vars(expr, a)
+      {:expr, expr}, a -> find_used_vars(expr, a)
+      {:let, decls}, a ->
+        Enum.reduce(decls, a, fn
+          %AST.DeclValue{expr: r}, a2 -> find_used_vars(r, a2)
+          _, a2 -> a2
+        end)
+    end)
+  end
+
+  defp find_used_vars(%AST.ExprReceive{clauses: clauses, after_clause: after_clause}, acc) do
+    acc1 =
+      Enum.reduce(clauses, acc, fn {_pat, body}, a ->
+        find_used_vars(body, a)
+      end)
+
+    case after_clause do
+      :none -> acc1
+      {:ok, after_body} -> find_used_vars(after_body, acc1)
+      {:ok, timeout_expr, after_body} -> find_used_vars(after_body, find_used_vars(timeout_expr, acc1))
+    end
+  end
 
   defp find_used_vars(_, acc), do: acc
 end

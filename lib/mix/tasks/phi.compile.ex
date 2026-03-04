@@ -90,7 +90,6 @@ defmodule Mix.Tasks.Phi.Compile do
       IO.puts("Stdlib written to #{out_dir}/. Done.")
     else
       keys = Phi.Typechecker.Env.all_keys(stdlib_env)
-      IO.puts("\nDEBUG: Before multi_pass, stdlib_env has #{length(keys)} keys")
       IO.puts("Compiling #{length(files)} user file(s)...")
       {_user_env, compiled_mods} = multi_pass(files, stdlib_env, out_dir, 1)
       summarise(compiled_mods, out_dir)
@@ -102,10 +101,7 @@ defmodule Mix.Tasks.Phi.Compile do
   # ---------------------------------------------------------------------------
 
   defp load_stdlib(stdlib_files, out_dir) do
-    env = do_passes(stdlib_files, Phi.Typechecker.Env.new(), out_dir, 1)
-    keys = Phi.Typechecker.Env.all_keys(env)
-    IO.puts("DEBUG: load_stdlib returning env with #{length(keys)} keys")
-    env
+    do_passes(stdlib_files, Phi.Typechecker.Env.new(), out_dir, 1)
   end
 
   defp do_passes(files, env, out_dir, pass, successful_files \\ %{}) do
@@ -142,8 +138,6 @@ defmodule Mix.Tasks.Phi.Compile do
         new_env
 
       successes == 0 ->
-        IO.puts("Pass #{pass}: stuck with #{length(failures)} failing files")
-        IO.puts("DEBUG: returning env with #{map_size(new_env.bindings)} keys after being stuck")
         new_env
 
       true ->

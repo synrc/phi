@@ -40,7 +40,7 @@ defmodule PhiStdlibTest do
 
     # Compile to BEAM binary and load it into VM!
     assert {:ok, mod, bin} = :compile.forms(forms, [:return_errors])
-    assert mod == :data_tuple
+    assert mod == :"Data.Tuple"
     assert :code.load_binary(mod, ~c"#{mod}", bin) == {:module, mod}
 
     # Try calling the compiled fst and snd!

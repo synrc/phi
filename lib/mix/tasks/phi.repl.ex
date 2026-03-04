@@ -55,10 +55,9 @@ defmodule Mix.Tasks.Phi.Repl do
     case try_compile(expr_source, env) do
       {:ok, mod, bin, new_env} ->
         :code.load_binary(mod, ~c"#{mod}.beam", bin)
-        mod_atom = module_atom(line_num)
 
-        if :erlang.function_exported(mod_atom, :repl_val, 0) do
-          result = try_eval(mod_atom, :repl_val)
+        if :erlang.function_exported(mod, :repl_val, 0) do
+          result = try_eval(mod, :repl_val)
 
           case result do
             {:ok, val} -> print_value(val)

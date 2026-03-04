@@ -19,12 +19,14 @@ import Data.Bool (otherwise)
 import Data.Enum (range)
 import Data.Eq ((==))
 import Data.Int (Int)
-import Data.List (concat, replicate, length) --init,
+import Data.List (length) --init,
 import Data.Functor (class Functor, map, (<$>))
 import Data.Function (($), identity, error, (<<<))
 import Data.Maybe (Maybe(..))
 import Data.Ord ((<), (<=), (>=))
-import Data.Ring ((-),(/),negate)
+import Data.Ring ((-),negate)
+foreign import spaceDiv :: Integer -> Integer -> Integer
+foreign import spacePipe :: Integer -> String -> String
 import Data.Semigroup ((<>))
 import Data.Semiring ((+))
 import Data.Show (showAny, show)
@@ -240,7 +242,7 @@ crashPipe :: String
 crashPipe = "●    "
 
 check :: forall a. Testable a => String -> Integer -> a -> SpaceCounter -> IO TestResult
-check s 0 m n = (printf "%s✔ %s" (concat $ replicate (n/5) basePipe) s :: IO ()) >>= \_ -> pure Successed
+check s 0 m n = (printf "%s✔ %s" (spacePipe n basePipe) s :: IO ()) >>= \_ -> pure Successed
 check s v m n = do
   i <- randomRIO 1332292274972041455 7304856964418773083
   println ("Checking " ++ s ++ " with iteration " ++ show v) 
@@ -249,9 +251,9 @@ check s v m n = do
   case r.ok of
     Just true -> check s (v-1) m n
     Just false -> (printf "%s✖ %s -----> %s"
-                    (concat $ replicate (n/5) errorPipe) s (showAny r.arguments) :: IO ()) >>= \_ -> pure $ Failed s (showAny r.arguments)
+                    (spacePipe n errorPipe) s (showAny r.arguments) :: IO ()) >>= \_ -> pure $ Failed s (showAny r.arguments)
     Nothing -> (printf "%s● %s ==> crash happened!!!  %s"
-                    (concat $ replicate (n/5) crashPipe) s (showAny r.arguments) :: IO ()) >>= \_ -> pure $ Crash s (showAny r.arguments)
+                    (spacePipe n crashPipe) s (showAny r.arguments) :: IO ()) >>= \_ -> pure $ Crash s (showAny r.arguments)
 
 
 quickCheck :: forall a. Testable a => String -> a -> SpaceCounter -> IO TestResult
@@ -269,18 +271,18 @@ data TestGroup a = TxG String [TestGroup a]
 
 tgToList :: TestGroup TestResult -> [TestResult]
 tgToList (Exe xs) = xs
-tgToList (TxG _ xs) = concat $ map tgToList xs
+tgToList (TxG _ xs) = foldl (++) [] $ map tgToList xs
 
 runTestGroup :: SpaceCounter -> TestGroup (Integer -> IO TestResult) -> IO (TestGroup TestResult)
 runTestGroup n (Exe fs) =  Exe <$> (seqio $ map (\x -> x n) fs)
 runTestGroup n (TxG s xs) =
-  TxG s <$> do println (concat (replicate (n/5) basePipe) <>  "✺ "<> s  )
+  TxG s <$> do println ((spacePipe n basePipe) ++ "✺ " ++ s)
                res <- seqio $ map (runTestGroup (n+5)) xs
-               let res1 = concat $ map tgToList res
+               let res1 = foldl (++) [] $ map tgToList res
                    (succ, fail, crash, total) = tcount (0,0,0,0) res1
                    renderCrash 0 = ""
-                   renderCrash i = "(crashed " <> show i <> ")"
-               printf "%s----> ◯ %d, ✔ %d, ✖ %d%s." (concat $ replicate (n/5) basePipe)  total succ fail (renderCrash crash)
+                   renderCrash i = "(crashed " ++ show i ++ ")"
+               printf "%s----> ◯ %d, ✔ %d, ✖ %d%s." (spacePipe n basePipe) total succ fail (renderCrash crash)
                pure res
 
 runTest :: TestGroup (Integer -> IO TestResult) -> IO ()

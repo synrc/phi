@@ -24,6 +24,8 @@
         , uniform_s/1
         , randomRInt/2
         , randomRChar/2
+        , spaceDiv/2
+        , spacePipe/2
         ]).
 
 -define(PRIME1, 30269).
@@ -93,3 +95,9 @@ uniform(N, Seed) when is_integer(N), N >= 1 ->
 uniform_s({A1, A2, A3}) ->
   R = A1/?PRIME1 + A2/?PRIME2 + A3/?PRIME3,
   R - trunc(R).
+
+%% Raw integer division for spacing — avoids Phi typeclass dispatch.
+spaceDiv(N, D) -> N div D.
+
+%% Build the indentation pipe string directly — avoids Phi foldl/replicate name collisions.
+spacePipe(N, Pipe) -> lists:flatten(lists:duplicate(N div 5, Pipe)).

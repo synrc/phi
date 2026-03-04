@@ -1315,8 +1315,14 @@ defmodule Phi.Codegen do
         {:call, 1, target, args}
 
       num < arity ->
-        vs = Enum.map(1..(arity - num), fn i -> {:var, 1, String.to_atom("P#{i}")} end)
-        {:fun, 1, {:clauses, [{:clause, 1, vs, [], [{:call, 1, target, args ++ vs}]}]}}
+        missing = arity - num
+        vs = Enum.map(1..missing, fn i -> {:var, 1, String.to_atom("P#{i}")} end)
+        inner = {:call, 1, target, args ++ vs}
+        # Emit nested curried funs: fun(P1) -> fun(P2) -> call(args,P1,P2) end end
+        # This matches how dispatch applies args one at a time via Enum.reduce.
+        Enum.reduce(Enum.reverse(vs), inner, fn v, body ->
+          {:fun, 1, {:clauses, [{:clause, 1, [v], [], [body]}]}}
+        end)
 
       num > arity ->
         {ba, ea} = Enum.split(args, arity)

@@ -1,0 +1,174 @@
+\documentclass{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{helvet}
+\usepackage{geometry}
+\usepackage{xcolor}
+\usepackage{eso-pic}
+\usepackage{fancyhdr}
+\usepackage{parskip}
+\usepackage{microtype}
+\usepackage[english]{babel}
+\usepackage{url}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+
+\definecolor{nato}{HTML}{293757}
+\definecolor{footergray}{gray}{0.65}
+
+\geometry{a4paper,left=3cm,right=3cm,top=3cm,bottom=3cm}
+\renewcommand{\familydefault}{\sfdefault}
+\setcounter{secnumdepth}{-2}
+
+\let\oldsection\section
+\renewcommand\section[1]{
+  \vspace{30pt}{\color{nato}\Huge\bfseries #1\par}
+  \vspace{12pt} \addcontentsline{toc}{section}{#1}}
+
+\let\oldsubsection\subsection
+\renewcommand\subsection[1]{
+  \vspace{20pt}{\color{nato}\LARGE\bfseries #1\par}
+  \vspace{8pt}\addcontentsline{toc}{subsection}{#1}}
+
+\fancyhf{}
+\fancyhead[R]{\small\color{footergray} March 03, 2026}
+\fancyfoot[L]{\small\color{footergray} Toward BEAM Interoperability: PureScript vs Haskell vs Elixir Reimplementation}
+\fancyfoot[R]{\small\color{footergray}\thepage}
+
+\newcommand\HUGE[1]{\fontsize{40}{40}\selectfont #1}
+
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0.4pt}
+\renewcommand{\footrule}{\color{footergray}\hrule width \textwidth height 0.4pt}
+
+\begin{document}
+
+\pagestyle{fancy}
+
+\begin{titlepage}
+  \AddToShipoutPictureBG*{\AtPageLowerLeft{\color{nato}\rule{\paperwidth}{\paperheight}}}
+  \color{white}\thispagestyle{empty}\vspace*{4cm}\centering
+  {\LARGE \textbf{PureScript vs Haskell} \par} \vspace{2cm}
+  {\HUGE  \textbf{Pure Functional Concurrent Language for Erlang/OTP} \par} \vspace{0.8cm}
+  {\LARGE \textbf{Interoperability and Elixir Reimplementation} \par} \vspace{2.5cm}
+  {\large Technical Article --- The Phi Project \par} \vfill
+  {\small Version 1.0. Published March 03, 2026 \par}
+  {\small \url{https://github.com/synrc/phi} \par}
+\end{titlepage}
+
+\newpage
+
+\begin{center}
+  {\Huge\color{nato}\bfseries Contents\par}
+\end{center}
+\vspace{40pt}
+\tableofcontents
+
+\begin{abstract}
+  PureScript and Haskell offer powerful Hindley-Milner type systems and pure functional paradigms that can replace classical imperative languages in production.
+  However, neither natively targets the Erlang VM (BEAM), which excels in massive concurrency, fault tolerance, distribution, and soft real-time applications (telecom, IoT, 5G edge, etc.).
+  This article compares PureScript and Haskell with a focus on their type-system internals and production trade-offs, but reframes the discussion around the ultimate goal: achieving full BEAM interoperability through a PureScript-like language fully reimplemented in Elixir (as pursued by the Phi project at https://github.com/synrc/phi).
+  Phi combines HM-style static typing and functional expressiveness with native BEAM primitives, avoiding JavaScript or native-code limitations while inheriting Elixir/Erlang's battle-tested concurrency model.
+\end{abstract}
+
+\newpage
+
+\section{Production Properties of BEAM}
+
+\subsection{Introduction}
+
+PureScript and Haskell both build on Hindley-Milner (HM) inference for strong static typing, parametric polymorphism, and principal types. They excel at compile-time safety compared to classical languages.
+
+Yet for systems requiring actor-based concurrency, supervision trees, hot code swapping, and seamless distribution across nodes — hallmarks of Erlang/OTP and BEAM — neither is optimal out of the box:
+
+\begin{itemize}
+\item PureScript targets JavaScript runtimes (Node/browser), lacking native BEAM integration.
+\item Haskell offers GHCJS or external FFI bridges, but loses BEAM's lightweight processes and OTP patterns.
+\end{itemize}
+
+A reimplementation in Elixir (like Phi) preserves PureScript-like syntax and HM typing while compiling directly to BEAM bytecode, unlocking Erlang's concurrency primitives natively.
+
+PureScript remains strict and extension-free; Haskell lazy and extension-heavy. Phi inherits PureScript's simplicity while adding BEAM-native distribution.
+
+\subsection{Production Comparison Table}
+
+\begin{tabular}{|l|p{4.8cm}|p{4.8cm}|}
+\hline
+Aspect & Haskell & PureScript \\
+\hline
+Maturity \& Ecosystem & Very mature; thousands of packages; used in finance, AI, large backends & Younger; smaller ecosystem; excellent JS interop; strong in frontend (Halogen, React) \\
+Performance & Native binaries; high throughput; laziness optimizes certain patterns & JS runtime; strict evaluation; predictable but slower than native \\
+Interop \& Deployment & C FFI; GHCJS exists but slow & Direct JS FFI; ideal for web \& Node deployment \\
+Compile Times \& Tooling & Slower (especially with many extensions); Stack/Cabal & Faster; Spago/Purs tooling \\
+Learning Curve \& Teams & Steep due to extensions and laziness & Gentler; closer to JavaScript developer mindset \\
+Production Examples & CollegeVine, financial services, backend platforms & Web applications, startups with JS-heavy stacks \\
+Simplicity (key advantage) & Complex: many extensions, laziness, advanced monads & Simple: no extensions, explicit forall, single canonical path for most features \\
+\hline
+\end{tabular}
+
+For BEAM-centric production (scalable real-time systems), an Elixir-based reimplementation dramatically outperforms both originals by marrying strong typing with Erlang's runtime strengths.
+
+\newpage
+\section{Hindley-Milner Internals}
+
+\subsection{Hindley-Milner Foundations}
+
+Both languages (and Phi) share core HM features:
+
+\begin{itemize}
+\item  Automatic inference
+\item  Parametric polymorphism (\texttt{id :: a -> a})
+\item  Unification \& generalization
+\item  Principal types
+\item  Type classes for ad-hoc polymorphism
+\item  Monadic effects for purity
+\end{itemize}
+
+\subsection{Key Differences in HM Implementation}
+
+\begin{tabular}{|l|p{4.6cm}|p{4.6cm}|}
+\hline
+Feature & Haskell & PureScript \\
+\hline
+Polymorphism Syntax & Implicit \texttt{forall} & Explicit \texttt{forall a.} (required) \\
+Inference Scope & Across modules; polymorphic recursion (with extensions) & Similar, but stricter module rules (no orphan instances) \\
+HM Extensions & Many: higher-kinded types (HKT), GADTs, type families, DataKinds & Built-in only: row polymorphism for extensible records (\{ | r \}); no native HKT \\
+Type Classes \& Instances & Unnamed instances; orphan instances allowed & Named instances; orphan instances forbidden \\
+Deriving & Automatic \texttt{deriving (Eq)} inside data declarations & Explicit standalone \texttt{derive instance} \\
+Evaluation Impact & Laziness can hide inference problems until runtime & Strict evaluation → predictable unification behavior \\
+Records & Syntactic sugar; label-based; row polymorphism via extensions & Native row polymorphism → structural typing, close to JS objects \\
+\hline
+\end{tabular}
+
+Phi keeps the HM core clean and explicit like PureScript, while eliminating JS limitations and adding BEAM-native constructs (e.g., direct process spawning, pattern-matched messaging).
+
+\subsection{Type System Conclusion}
+
+PureScript provides the cleanest, most production-friendly HM variant among the three originals — with native row polymorphism but without higher-kinded types (HKT), keeping complexity low. Haskell is far more expressive (including full HKT support) but often over-complex. A full Elixir reimplementation (Phi) delivers the best of both worlds: minimal HM + BEAM's unmatched concurrency/distribution.
+
+\newpage
+\section{Recommendation}
+
+If the goal is **BEAM interoperability** and building scalable, fault-tolerant, distributed systems (5G, IoT, edge computing, telecom-grade applications), neither pure PureScript nor Haskell is sufficient on its own.
+
+\begin{itemize}
+\item PureScript excels in simplicity and web/full-stack but lacks native BEAM runtime.
+\item Haskell offers power but brings extension complexity and no first-class BEAM support.
+\end{itemize}
+
+The superior path is a **full reimplementation in Elixir** — as demonstrated by the active Phi project (https://github.com/synrc/phi). Phi reimplements PureScript-like syntax, HM type inference/checking, ADTs, monads, and row polymorphism directly in Elixir, compiling to BEAM bytecode.
+
+This approach yields:
+
+\begin{itemize}
+\item Static type safety at compile time
+\item Pure functional style without extension soup
+\item Native access to Erlang processes, supervision, distribution, and hot upgrades
+\item Leverage of the mature Elixir/Erlang ecosystem
+\end{itemize}
+
+Both PureScript and Haskell remain excellent for their niches, but for BEAM-first production, Phi-style Elixir reimplementation is the clear way forward — dramatically safer, more scalable, and more maintainable than classical imperative alternatives on the Erlang VM.
+
+\end{document}

@@ -1,0 +1,73 @@
+defmodule Phi.Compiler do
+  @moduledoc """
+  Main entry point for the Phi compiler.
+  Orchestrates Lexing, Layout, Parsing, Desugaring, Typechecking, and Codegen.
+  """
+
+  def compile_module(source_code, opts \\ []) do
+    source_path = Keyword.get(opts, :source_path)
+    env = Keyword.get(opts, :env, Phi.Typechecker.Env.new())
+
+    with {:ok, tokens} <- Phi.Lexer.lex(source_code),
+         resolved <- Phi.Layout.resolve(tokens),
+         {:ok, ast} <- normalize_parse(Phi.Parser.parse(resolved)),
+         desugared_ast <- Phi.Desugar.desugar(ast) do
+      # Compile companion Erlang file if it exists
+      foreign_mod =
+        if source_path do
+          :code.add_patha(~c"ebin")
+          erl_path = String.replace(source_path, ".hm", ".erl")
+
+          if File.exists?(erl_path) do
+            case :compile.file(String.to_charlist(erl_path), [
+                   :return_errors,
+                   :debug_info,
+                   {:outdir, ~c"ebin"}
+                 ]) do
+              {:ok, erlmod} ->
+                :code.purge(erlmod)
+                :code.load_file(erlmod)
+                erlmod
+
+              {:error, err, _warn} ->
+                IO.puts("Warning: foreign compile failed: #{inspect(err)}")
+                nil
+            end
+          end
+        end
+
+      new_env = Phi.Typechecker.build_env(desugared_ast, env)
+
+      codegen_opts = if foreign_mod, do: [foreign_mod: foreign_mod], else: []
+
+      case Phi.Codegen.generate(desugared_ast, new_env, codegen_opts) do
+        {:ok, forms} ->
+          case :compile.forms(forms, [:return_errors, :debug_info]) do
+            {:ok, mod, bin} ->
+              {:ok, mod, bin, desugared_ast, new_env}
+
+            {:error, errors, warnings} ->
+              {:error, {:erl_compile, errors, warnings}}
+          end
+
+        {:error, _} = err ->
+          err
+      end
+    end
+  end
+
+  # Accept both {:ok, ast} and {:ok, ast, rest} from the parser.
+  # A non-empty rest means the parser couldn't consume all tokens (likely
+  # unsupported syntax), but we still try to compile what was parsed.
+  defp normalize_parse({:ok, ast}), do: {:ok, ast}
+
+  defp normalize_parse({:ok, _ast, rest}) do
+    {:error, {:partial_parse, rest}}
+  end
+
+  defp normalize_parse(err), do: err
+
+  def load_module(mod, bin) do
+    :code.load_binary(mod, ~c"#{mod}.beam", bin)
+  end
+end

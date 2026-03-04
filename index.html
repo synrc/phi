@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Φ — Native PureScript for Erlang VM</title>
+    <link rel="stylesheet" href="index.css?v=4">
+</head>
+<body>
+    <nav class="sticky">
+        <div class="nav-container">
+            <a href="index.html" class="logo">Ф</a>
+            <ul class="nav-links">
+                <li><a href="index.html">Language</a></li>
+                <li><a href="library.html">Library</a></li>
+                <li><a href="https://github.com/synrc/phi" target="_blank">Sources</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <header>
+        <div class="hero-content">
+            <h1>Phi</h1>
+            <p class="hero-subtitle">Algebraic pure functional language Phi,
+            implementing PureScript syntax and sematics, written in Elixir for Erlang/OTP concurrency model
+            and its Open Telecom Platform framework.
+             <!--Алгебраїчна чиста функціональна мова програмування Phi, яка реалізує синтаксис і семантику PureScript,
+                                     написана на Elixir для телекомунікаційної платформи Erlang/OTP.--></p>
+            <div style="float:inline;align:center;margin-left:-23px;" class="code-snippet">module Main where
+
+import Prelude
+import Effect.Console (log)
+
+main :: Effect Unit
+main = do
+    log "Hello, Phi!"
+    log "Strongly-typed • Concurrent • Distributed"</div>
+        </div>
+        </div>
+    </header>
+
+    <main>
+        <section>
+            <h2>Features</h2>
+            <div class="product-grid">
+                <div class="product-card">
+                    <h3>Power &amp; Beauty</h3>
+                    <p>Write pure functional code. Compile to highly scalable, fault-tolerant Erlang/OTP bytecode.</p>
+                </div>
+                <div class="product-card">
+                    <h3>Full Type Safety</h3>
+                    <p>Compile-time type checking and inference. Algebraic data types, pattern matching, type classes.</p>
+                </div>
+                <div class="product-card">
+                    <h3>Effectful Concurrency</h3>
+                    <p>Actors, OTP behaviours, supervision trees — all with PureScript syntax.</p>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>Get Started</h2>
+            <div style="max-width:720px;margin:0 auto;">
+                <pre class="code-snippet">
+$ mix deps.get
+$ mix phi.repl
+Phi Interactive REPL
+Type :quit to exit, :reset to clear bindings
+Library loaded. Ready.
+ф> import Control.Process
+ф> getSelf
+#PID&lt;0.94.0&gt;
+ф> import Control.Application
+ф> loadedApplications
+[
+  %{name: :logger, vsn: ~c"1.18.4", desc: ~c"logger"},
+  %{name: :mix, vsn: ~c"1.18.4", desc: ~c"mix"},
+  %{name: :iex, vsn: ~c"1.18.4", desc: ~c"iex"},
+  %{name: :phi, vsn: ~c"0.3.1", desc: ~c"The Phi Programming Language",
+  %{name: :ex_unit, vsn: ~c"1.18.4"', desc: ~c"ex_unit"},
+  %{name: :stdlib, vsn: ~c"7.0.2", desc: ~C"ERTS CXC 138 10"},
+  %{name: :crypto, vsn: ~c"5.6"', desc: ~c "CRYPTO" },
+  %{name: :compiler, vsn: ~c"9.0.1", desc: ~C"ERTS CXC 138 10"},
+  %{name: :elixir, vsn: ~c"1.18.4", desc: ~c"elixir"},
+  %{name: :kernel, vsn: ~C"10.3.2"', desc: ~C"ERTS CXC 138 10"}
+]
+</pre>
+                <p><strong>More news will come soon.</strong></p>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="footer-columns">
+            <div>
+                <h4>Phi</h4>
+                <p>Native PureScript for Erlang VM</p>
+            </div>
+            <div>
+                <h4>Resources</h4>
+                <ul>
+                    <li><a href="library.html">Base Library</a></li>
+                    <li><a href="https://github.com/synrc/phi">GitHub</a></li>
+                </ul>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>

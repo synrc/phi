@@ -1,0 +1,7 @@
+module Example where
+
+answer = 42
+
+id = \x -> x
+
+main = let f = id in f 42

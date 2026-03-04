@@ -20,17 +20,17 @@ defmodule PhiCodegenTest do
     # Compile the forms to a BEAM binary to prove they are valid Erlang AST!
     case :compile.forms(forms, [:return_errors]) do
       {:ok, mod_name, binary} when is_binary(binary) ->
-        assert mod_name == :core
+        assert mod_name == :Core
 
         # We can dynamically load the compiled module into the VM!
         :code.load_binary(mod_name, ~c"#{mod_name}", binary)
 
         # Test the compiled Erlang functions!
         # fortyTwo = 42 compiles to the integer 42
-        assert :core.fortyTwo() == 42
+        assert :Core.fortyTwo() == 42
 
         # id is a function taking 1 argument (desugared to N-arity)
-        assert :core.id(99) == 99
+        assert :Core.id(99) == 99
 
         # applyId uses let-binding with local function call; currently compiles
         # `f` as an atom, not a callable. Known limitation.

@@ -39,10 +39,10 @@ defmodule Phi.Typechecker do
       }
     end
 
-    def extend(%Env{bindings: b} = env, module, name, scheme, hamler_mod \\ nil) do
+    def extend(%Env{bindings: b} = env, module, name, scheme, mod \\ nil) do
       # Store as {module, scheme}
       b1 = Map.put(b, name, {module, scheme})
-      b2 = if hamler_mod, do: Map.put(b1, "#{hamler_mod}.#{name}", {module, scheme}), else: b1
+      b2 = if mod, do: Map.put(b1, "#{mod}.#{name}", {module, scheme}), else: b1
       %{env | bindings: b2}
     end
 
@@ -59,15 +59,20 @@ defmodule Phi.Typechecker do
     end
 
     def resolve_term_alias(%Env{term_aliases: ta, module_aliases: ma}, name) do
-      case String.split(name, ".", parts: 2) do
-        [mod, member] ->
+      parts = String.split(name, ".")
+
+      case parts do
+        [_single] ->
+          Map.get(ta, name, name)
+
+        _ ->
+          {member_parts, [member]} = Enum.split(parts, length(parts) - 1)
+          mod = Enum.join(member_parts, ".")
+
           case Map.get(ma, mod) do
             nil -> Map.get(ta, name, name)
             full_mod -> "#{full_mod}.#{member}"
           end
-
-        _ ->
-          Map.get(ta, name, name)
       end
     end
   end
@@ -122,7 +127,18 @@ defmodule Phi.Typechecker do
 
       %AST.DeclTypeAlias{name: name, type: ast_type}, acc ->
         type = ast_to_type(ast_type, acc)
-        Env.add_alias(acc, name, type)
+        acc2 = Env.add_alias(acc, name, type)
+
+        case ast_type do
+          %AST.TypeRecord{fields: fields} ->
+            Enum.reduce(fields, acc2, fn field_name, e ->
+              acc_name = "access_#{field_name}"
+              Env.extend(e, erl_mod, acc_name, nil, mod_name)
+            end)
+
+          _ ->
+            acc2
+        end
 
       %AST.DeclClass{name: name, args: args, members: members}, acc ->
         # args here are [%AST.TypeVar{name: "a"}] etc.
@@ -607,6 +623,53 @@ defmodule Phi.Typechecker do
     t_binder = %TVar{id: state.next_id}
     state2 = %{state | next_id: state.next_id + 1}
     {:ok, t_binder, %{name => t_binder}, state2}
+  end
+
+  defp infer_binder(env, state, %AST.BinderAtom{value: _v}) do
+    # Atom literal pattern binds no variables.
+    # If Atom type alias exists in env, use it; otherwise fall back to TCon("Atom").
+    t_atom =
+      case Env.lookup_alias(env, "Atom") do
+        {:ok, t} -> t
+        :error -> %TCon{name: "Atom"}
+      end
+
+    {:ok, t_atom, %{}, state}
+  end
+
+  defp infer_binder(env, state, %AST.BinderBinary{binder: binder}) do
+    case infer_binder(env, state, binder) do
+      {:ok, _t_inner, bound_vars, state2} ->
+        t_bin =
+          case Env.lookup_alias(env, "Binary") do
+            {:ok, t} -> t
+            :error -> %TCon{name: "Binary"}
+          end
+
+        {:ok, t_bin, bound_vars, state2}
+
+      err ->
+        err
+    end
+  end
+
+  defp infer_binder(env, state, %AST.BinderAs{name: name, binder: binder}) do
+    case infer_binder(env, state, binder) do
+      {:ok, t_inner, bound_vars, state2} ->
+        t_as = %TVar{id: state2.next_id}
+        state3 = %{state2 | next_id: state2.next_id + 1}
+
+        case unify(t_as, t_inner, state3) do
+          {:ok, state4} ->
+            {:ok, apply_subst(state4.subst, t_as), Map.put(bound_vars, name, t_as), state4}
+
+          err ->
+            err
+        end
+
+      err ->
+        err
+    end
   end
 
   defp infer_binder(env, state, %AST.BinderConstructor{name: name, args: args}) do

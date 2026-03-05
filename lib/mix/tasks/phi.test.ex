@@ -1,14 +1,14 @@
 defmodule Mix.Tasks.Phi.Test do
   @moduledoc """
-  Compiles the Phi stdlib (lib/**/*.phi) and then the Phi test suite
-  (tests/**/*.phi) using the same multi-pass environment accumulation strategy,
+  Compiles the Phi priv (lib/**/*.phi) and then the Phi test suite
+  (test/**/*.phi) using the same multi-pass environment accumulation strategy,
   then executes the test main function.
 
   Usage: mix phi.test
   """
   use Mix.Task
 
-  @shortdoc "Run Phi native QuickCheck tests"
+  @shortdoc "Run Phi QuickCheck Tests"
 
   def run(_args) do
     Mix.Task.run("compile", [])
@@ -17,17 +17,17 @@ defmodule Mix.Tasks.Phi.Test do
 
     IO.puts("\n=== Phi Native Test Runner ===\n")
 
-    # Step 1: compile stdlib
-    IO.puts("--- Compiling stdlib (stdlib/**/*.phi) ---")
-    lib_files = Path.wildcard("stdlib/**/*.phi")
-    IO.puts("Found #{length(lib_files)} stdlib files.")
-    stdlib_env = multi_pass_compile(lib_files, Phi.Typechecker.Env.new(), 1, "stdlib")
+    # Step 1: compile priv
+    IO.puts("--- Compiling priv (priv/**/*.phi) ---")
+    lib_files = Path.wildcard("priv/**/*.phi")
+    IO.puts("Found #{length(lib_files)} priv files.")
+    priv_env = multi_pass_compile(lib_files, Phi.Typechecker.Env.new(), 1, "priv")
 
     # Step 2: compile test suite
-    IO.puts("\n--- Compiling test suite (tests/**/*.phi) ---")
-    test_files = Path.wildcard("tests/**/*.phi")
+    IO.puts("\n--- Compiling test suite (test/phi/**/*.phi) ---")
+    test_files = Path.wildcard("test/phi/**/*.phi")
     IO.puts("Found #{length(test_files)} test files.")
-    _test_env = multi_pass_compile(test_files, stdlib_env, 1, "tests")
+    _test_env = multi_pass_compile(test_files, priv_env, 1, "tests")
 
     # Step 3: run tests
     IO.puts("\n--- Running tests ---\n")
@@ -125,7 +125,7 @@ defmodule Mix.Tasks.Phi.Test do
 
   defp run_test_main do
     try do
-      # tests/Test.hm → module Test → main/0 returns IO ()
+      # test/phi/Test.hm → module Test → main/0 returns IO ()
       io_action = apply(:Test, :main, [])
 
       if is_function(io_action, 0) do
@@ -137,7 +137,7 @@ defmodule Mix.Tasks.Phi.Test do
       e ->
         case e do
           %ErlangError{original: {:undef, [{:Test, :main, _, _} | _]}} ->
-            IO.puts("Could not find Test:main/0 — was tests/Test.hm compiled?")
+            IO.puts("Could not find Test:main/0 — was test/phi/Test.hm compiled?")
 
           _ ->
             IO.puts("Error running tests: #{Exception.message(e)}")

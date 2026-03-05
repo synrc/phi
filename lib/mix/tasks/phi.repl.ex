@@ -1,12 +1,12 @@
 defmodule Mix.Tasks.Phi.Repl do
   use Mix.Task
 
-  @shortdoc "Starts a Phi REPL"
+  @shortdoc "Start Phi Shell"
   def run(_) do
     IO.puts("Phi Interactive REPL")
     IO.puts("Type :quit to exit, :reset to clear bindings")
 
-    files = Path.wildcard("stdlib/**/*.phi")
+    files = Path.wildcard("priv/**/*.phi")
     IO.puts("Loading Standard Library (#{length(files)} files)...")
 
     base_env = load_files(files, Phi.Typechecker.Env.new(), 1)

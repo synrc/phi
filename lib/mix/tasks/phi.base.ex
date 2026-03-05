@@ -7,15 +7,15 @@ defmodule Mix.Tasks.Phi.Base do
   """
   use Mix.Task
 
-  @shortdoc "Compile all Phi stdlib .phi files"
+  @shortdoc "Compile Base Library"
 
   def run(_args) do
     Mix.Task.run("compile", [])
 
-    files = Path.wildcard("stdlib/**/*.phi") |> Enum.sort()
+    files = Path.wildcard("priv/**/*.phi") |> Enum.sort()
     total = length(files)
 
-    IO.puts("\n#{IO.ANSI.bright()}=== Phi Stdlib Compilation Report ===#{IO.ANSI.reset()}")
+    IO.puts("\n#{IO.ANSI.bright()}=== Phi priv Compilation Report ===#{IO.ANSI.reset()}")
     IO.puts("Found #{total} .phi files\n")
 
     IO.puts("Compiling...\n")
@@ -75,7 +75,7 @@ defmodule Mix.Tasks.Phi.Base do
 
         mod_hint =
           file
-          |> String.replace_prefix("stdlib/", "")
+          |> String.replace_prefix("priv/", "")
           |> String.replace_suffix(".phi", "")
           |> String.replace("/", ".")
 

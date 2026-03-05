@@ -1,7 +1,7 @@
 defmodule Mix.Tasks.Phi.Compile do
   use Mix.Task
 
-  @shortdoc "Compile Phi (.phi) files to BEAM"
+  @shortdoc "Compile *.phi Files"
   @moduledoc """
   Compiles one or more Phi (.phi) source files (and their dependencies) to BEAM
   bytecode that can be executed directly by the Erlang runtime.
@@ -55,7 +55,7 @@ defmodule Mix.Tasks.Phi.Compile do
         IO.write("Compiling standard library...")
 
         stdlib_files =
-          Path.wildcard("lib/**/*.hm")
+          Path.wildcard("priv/**/*.hm")
           |> Enum.sort_by(fn path ->
             base = Path.basename(path)
 

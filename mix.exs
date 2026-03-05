@@ -3,7 +3,7 @@ defmodule Phi.MixProject do
   def project do
       [
         app: :phi,
-        version: "0.3.5",
+        version: "0.3.6",
         description: "The Phi Programming Language",
         deps: deps(),
         package: package()
@@ -17,7 +17,7 @@ defmodule Phi.MixProject do
   end
   def package() do
       [
-        files: ["lib", "stdlib", "test", "tests", "LICENSE", "README.md" ],
+        files: ["lib", "priv", "test", "LICENSE", "README.md" ],
         licenses: ["ISC"],
         maintainers: ["Namdak Tonpa"],
         name: :phi,

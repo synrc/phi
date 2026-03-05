@@ -1,0 +1,12 @@
+module Test.Data.Debug where
+
+import Prelude
+import Data.Semigroup
+import Data.Show
+import Test.QuickCheck
+
+propShowFunction :: Bool
+propShowFunction = ("(crashed " <> show 1 <> ")" == "(crashed 1)")
+
+test :: TestGroup (Integer -> IO TestResult)
+test = Exe [ quickCheck1 "show 1" propShowFunction ]

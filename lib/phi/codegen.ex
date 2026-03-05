@@ -622,115 +622,124 @@ defmodule Phi.Codegen do
 
     case f do
       %AST.ExprVar{name: name} ->
-        cond do
-          Map.has_key?(fix_env, name) ->
-            erl_f = Map.get(fix_env, name)
-            Enum.reduce(erl_args, erl_f, fn arg, acc -> {:call, 1, acc, [arg]} end)
+        # Emit native Erlang ops for known primitive operators — avoids typeclass
+        # dispatch case expressions that cause Erlang compiler exponential blowup.
+        native_op = native_erlang_op(name, global_env)
 
-          MapSet.member?(local_env, name) ->
-            erl_f = {:var, 1, String.capitalize(name) |> String.to_atom()}
-            Enum.reduce(erl_args, erl_f, fn arg, acc -> {:call, 1, acc, [arg]} end)
+        if native_op && length(erl_args) == 2 do
+          [a, b] = erl_args
+          {:op, 1, native_op, a, b}
+        else
+          cond do
+            Map.has_key?(fix_env, name) ->
+              erl_f = Map.get(fix_env, name)
+              Enum.reduce(erl_args, erl_f, fn arg, acc -> {:call, 1, acc, [arg]} end)
 
-          true ->
-            {mod, scheme, real_name, base_name} = get_info(name, global_env)
+            MapSet.member?(local_env, name) ->
+              erl_f = {:var, 1, String.capitalize(name) |> String.to_atom()}
+              Enum.reduce(erl_args, erl_f, fn arg, acc -> {:call, 1, acc, [arg]} end)
 
-            if scheme == nil && constructor_name?(real_name) do
-              {:tuple, 1, [{:atom, 1, String.to_atom(base_name)} | erl_args]}
-            else
-              {num_dicts, num_args} = if scheme, do: split_arity(scheme), else: {0, 0}
-              total_arity = num_dicts + num_args
+            true ->
+              {mod, scheme, real_name, base_name} = get_info(name, global_env)
 
-              if num_dicts > 0 do
-                class_name = global_env.member_to_class[real_name] || extract_class_name(scheme)
-                dict_arg_name = find_dictionary(class_name, local_env)
+              if scheme == nil && constructor_name?(real_name) do
+                {:tuple, 1, [{:atom, 1, String.to_atom(base_name)} | erl_args]}
+              else
+                {num_dicts, num_args} = if scheme, do: split_arity(scheme), else: {0, 0}
+                total_arity = num_dicts + num_args
 
-                if class_name do
-                  is_method = Map.has_key?(global_env.member_to_class, real_name)
+                if num_dicts > 0 do
+                  class_name = global_env.member_to_class[real_name] || extract_class_name(scheme)
+                  dict_arg_name = find_dictionary(class_name, local_env)
 
-                  if dict_arg_name do
-                    dict_expr = {:var, 1, String.to_atom(dict_arg_name)}
+                  if class_name do
+                    is_method = Map.has_key?(global_env.member_to_class, real_name)
 
-                    if is_method do
-                      accessor_call =
-                        if mod && mod != current_mod do
-                          {:call, 1,
-                           {:remote, 1, {:atom, 1, mod}, {:atom, 1, String.to_atom(base_name)}},
-                           [dict_expr]}
-                        else
-                          {:call, 1, {:atom, 1, String.to_atom(base_name)}, [dict_expr]}
-                        end
+                    if dict_arg_name do
+                      dict_expr = {:var, 1, String.to_atom(dict_arg_name)}
 
-                      Enum.reduce(erl_args, accessor_call, fn arg, acc ->
-                        {:call, 1, acc, [arg]}
-                      end)
+                      if is_method do
+                        accessor_call =
+                          if mod && mod != current_mod do
+                            {:call, 1,
+                             {:remote, 1, {:atom, 1, mod}, {:atom, 1, String.to_atom(base_name)}},
+                             [dict_expr]}
+                          else
+                            {:call, 1, {:atom, 1, String.to_atom(base_name)}, [dict_expr]}
+                          end
+
+                        Enum.reduce(erl_args, accessor_call, fn arg, acc ->
+                          {:call, 1, acc, [arg]}
+                        end)
+                      else
+                        generate_static_call(
+                          base_name,
+                          mod,
+                          total_arity,
+                          [dict_expr | erl_args],
+                          current_mod
+                        )
+                      end
                     else
-                      generate_static_call(
-                        base_name,
-                        mod,
-                        total_arity,
-                        [dict_expr | erl_args],
-                        current_mod
-                      )
+                      if is_method do
+                        generate_dispatch_call(
+                          real_name,
+                          mod,
+                          erl_args,
+                          class_name,
+                          global_env,
+                          current_mod
+                        )
+                      else
+                        # Constrained non-method with no dict in scope.
+                        # Preserve dict-first calling convention by wrapping:
+                        #   fun(D1..Dn) -> f(D1..Dn, args...) end
+                        dict_vars =
+                          if class_name do
+                            instances = Map.get(global_env.instances, class_name, [])
+
+                            case Enum.find(instances, fn _ -> true end) do
+                              %{dict_name: dn, mod: dict_mod}
+                              when is_atom(dict_mod) and not is_nil(dict_mod) ->
+                                [
+                                  {:call, 1,
+                                   {:remote, 1, {:atom, 1, dict_mod},
+                                    {:atom, 1, String.to_atom(dn)}}, []}
+                                ]
+
+                              _ ->
+                                Enum.map(1..num_dicts, fn _ ->
+                                  {:atom, 1, :undefined_dict}
+                                end)
+                            end
+                          else
+                            Enum.map(1..num_dicts, fn _ -> {:atom, 1, :undefined_dict} end)
+                          end
+
+                        generate_static_call(
+                          base_name,
+                          mod,
+                          total_arity,
+                          dict_vars ++ erl_args,
+                          current_mod
+                        )
+                      end
                     end
                   else
-                    if is_method do
-                      generate_dispatch_call(
-                        real_name,
-                        mod,
-                        erl_args,
-                        class_name,
-                        global_env,
-                        current_mod
-                      )
-                    else
-                      # Constrained non-method with no dict in scope.
-                      # Preserve dict-first calling convention by wrapping:
-                      #   fun(D1..Dn) -> f(D1..Dn, args...) end
-                      dict_vars =
-                        if class_name do
-                          instances = Map.get(global_env.instances, class_name, [])
+                    final_args =
+                      if dict_arg_name,
+                        do: [{:var, 1, String.to_atom(dict_arg_name)} | erl_args],
+                        else: erl_args
 
-                          case Enum.find(instances, fn _ -> true end) do
-                            %{dict_name: dn, mod: dict_mod}
-                            when is_atom(dict_mod) and not is_nil(dict_mod) ->
-                              [
-                                {:call, 1,
-                                 {:remote, 1, {:atom, 1, dict_mod},
-                                  {:atom, 1, String.to_atom(dn)}}, []}
-                              ]
-
-                            _ ->
-                              Enum.map(1..num_dicts, fn _ ->
-                                {:atom, 1, :undefined_dict}
-                              end)
-                          end
-                        else
-                          Enum.map(1..num_dicts, fn _ -> {:atom, 1, :undefined_dict} end)
-                        end
-
-                      generate_static_call(
-                        base_name,
-                        mod,
-                        total_arity,
-                        dict_vars ++ erl_args,
-                        current_mod
-                      )
-                    end
+                    generate_static_call(base_name, mod, total_arity, final_args, current_mod)
                   end
                 else
-                  final_args =
-                    if dict_arg_name,
-                      do: [{:var, 1, String.to_atom(dict_arg_name)} | erl_args],
-                      else: erl_args
-
-                  generate_static_call(base_name, mod, total_arity, final_args, current_mod)
+                  # For unknown functions (scheme=nil), use actual arg count
+                  effective_arity = if scheme == nil, do: length(erl_args), else: total_arity
+                  generate_static_call(base_name, mod, effective_arity, erl_args, current_mod)
                 end
-              else
-                # For unknown functions (scheme=nil), use actual arg count to avoid f()(args) pattern
-                effective_arity = if scheme == nil, do: length(erl_args), else: total_arity
-                generate_static_call(base_name, mod, effective_arity, erl_args, current_mod)
               end
-            end
+          end
         end
 
       other ->
@@ -1068,6 +1077,58 @@ defmodule Phi.Codegen do
   defp type_outer_name(%Phi.Type.TCon{name: n}), do: n
   defp type_outer_name(_), do: nil
 
+  # Map known Phi operators to native Erlang ops when they resolve to typeclass methods.
+  # This avoids generating dispatch case expressions for primitive ops, preventing
+  # exponential Erlang compiler blowup (e.g., Data.Read.phi's splitTop with many == and ||).
+  @native_ops %{
+    # Eq
+    "eq" => :"=:=",
+    # Eq
+    "notEq" => :"/=",
+    # Ord — no direct Erlang equivalent
+    "compare" => nil,
+    # Ord
+    "lessThan" => :<,
+    # Ord
+    "lessThanOrEq" => :"=<",
+    # Ord
+    "greaterThan" => :>,
+    # Ord
+    "greaterThanOrEq" => :>=,
+    # Semiring
+    "add" => :+,
+    # Semiring
+    "mul" => :*,
+    # Ring
+    "sub" => :-,
+    # Division
+    "div" => :div,
+    # Semigroup (String/List)
+    "append" => :++,
+    # HeytingAlgebra (&&)
+    "conj" => :andalso,
+    # HeytingAlgebra (||)
+    "disj" => :orelse
+  }
+
+  defp native_erlang_op(name, global_env) do
+    # Only short-circuit to native ops if the name resolves to a known typeclass method
+    real_name =
+      case Env.resolve_term_alias(global_env, name) do
+        {:ok, rn} -> rn
+        _ -> name
+      end
+
+    base = real_name |> String.split(".") |> List.last()
+    is_method = Map.has_key?(global_env.member_to_class, real_name)
+
+    if is_method do
+      Map.get(@native_ops, base)
+    else
+      nil
+    end
+  end
+
   defp erlang_type_guard(type, arg_var) do
     case type_outer_name(type) do
       "Fun" ->
@@ -1115,189 +1176,85 @@ defmodule Phi.Codegen do
 
   defp generate_dispatch_call(real_name, mod, erl_args, class_name, global_env, current_mod) do
     instances = Map.get(global_env.instances, class_name, [])
-    n = length(erl_args)
-
-    # Some methods have their type parameter at a specific index
     base_name = real_name |> String.split(".") |> List.last()
+    is_method = Map.has_key?(global_env.member_to_class, real_name)
 
-    {_, scheme, _, _} = get_info(real_name, global_env)
+    # Pick the first available instance — typechecker already resolved the correct one.
+    # No case expression, no guards, no runtime dispatch overhead.
+    first_instance =
+      Enum.find(instances, fn
+        %{mod: dict_mod} when is_atom(dict_mod) and not is_nil(dict_mod) -> true
+        _ -> false
+      end)
 
-    preferred_idx =
-      if scheme do
-        get_dispatch_index(scheme)
-      else
-        is_method = Map.has_key?(global_env.member_to_class, real_name)
-        if base_name == "map" and n > 1 and is_method, do: 1, else: 0
-      end
+    if first_instance do
+      %{dict_name: dn, mod: dict_mod, constraints: cs} = first_instance
 
-    dispatch_order =
-      cond do
-        n == 0 ->
-          []
+      derived_dict_args =
+        if cs do
+          Enum.map(cs, fn
+            %Type.TConstrained{class_name: cn, args: [%Type.TVar{id: vn} | _]} ->
+              {:var, 1, String.to_atom("Dict_#{cn}_#{vn}")}
 
-        preferred_idx < n ->
-          [preferred_idx | Enum.to_list(0..(n - 1)) -- [preferred_idx]]
+            %Type.TConstrained{class_name: cn, args: [%Type.TCon{name: tn} | _]} ->
+              {:var, 1, String.to_atom("Dict_#{cn}_#{tn}")}
 
-        true ->
-          Enum.to_list(0..(n - 1))
-      end
-
-    # Try each arg position — first position with matching instances wins.
-    result =
-      if n > 0 do
-        Enum.find_value(dispatch_order, fn dispatch_idx ->
-          dispatch_target = Enum.at(erl_args, dispatch_idx)
-          dispatch_var_atom = :"DDispatch__#{System.unique_integer([:positive])}"
-          dispatch_var = {:var, 1, dispatch_var_atom}
-
-          clauses =
-            Enum.flat_map(instances, fn
-              %{types: [type | _], dict_name: dn, mod: dict_mod, constraints: cs}
-              when is_atom(dict_mod) and not is_nil(dict_mod) ->
-                guard = erlang_type_guard(type, dispatch_var)
-
-                if guard do
-                  # Dynamically load the dictionaries required by this instance from the current scope
-                  derived_dict_args =
-                    if cs do
-                      Enum.map(cs, fn
-                        %Type.TConstrained{class_name: cn, args: [%Type.TVar{id: vn} | _]} ->
-                          {:var, 1, String.to_atom("Dict_#{cn}_#{vn}")}
-
-                        %Type.TConstrained{class_name: cn, args: [%Type.TCon{name: tn} | _]} ->
-                          {:var, 1, String.to_atom("Dict_#{cn}_#{tn}")}
-
-                        _ ->
-                          # Fallback: keep Erlang compilation working; will likely crash at runtime
-                          {:atom, 1, :undefined_dict}
-                      end)
-                    else
-                      []
-                    end
-
-                  dict_call =
-                    {:call, 1, {:remote, 1, {:atom, 1, dict_mod}, {:atom, 1, String.to_atom(dn)}},
-                     derived_dict_args}
-
-                  base_method = real_name |> String.split(".") |> List.last()
-
-                  is_method = Map.has_key?(global_env.member_to_class, real_name)
-
-                  accessor =
-                    if is_method do
-                      base_accessor =
-                        if mod && mod != current_mod do
-                          {:call, 1,
-                           {:remote, 1, {:atom, 1, mod}, {:atom, 1, String.to_atom(base_method)}},
-                           [dict_call]}
-                        else
-                          {:call, 1, {:atom, 1, String.to_atom(base_method)}, [dict_call]}
-                        end
-
-                      remaining_args = List.delete_at(erl_args, dispatch_idx)
-
-                      Enum.reduce(remaining_args, base_accessor, fn arg, acc ->
-                        {:call, 1, acc, [arg]}
-                      end)
-                    else
-                      {_, scheme, _, _} = get_info(real_name, global_env)
-                      {_, ea} = if scheme, do: split_arity(scheme), else: {0, 0}
-
-                      target =
-                        if mod && mod != current_mod do
-                          {:remote, 1, {:atom, 1, mod}, {:atom, 1, String.to_atom(base_method)}}
-                        else
-                          {:atom, 1, String.to_atom(base_method)}
-                        end
-
-                      remaining_args = List.delete_at(erl_args, dispatch_idx)
-                      num_remaining = length(remaining_args)
-
-                      cond do
-                        num_remaining == ea ->
-                          {:call, 1, target, [dict_call] ++ remaining_args}
-
-                        num_remaining < ea ->
-                          vs =
-                            if ea - num_remaining > 0,
-                              do:
-                                Enum.map(1..(ea - num_remaining), fn i ->
-                                  {:var, 1, String.to_atom("CArg#{i}")}
-                                end),
-                              else: []
-
-                          {:fun, 1,
-                           {:clauses,
-                            [
-                              {:clause, 1, vs, [],
-                               [{:call, 1, target, [dict_call] ++ remaining_args ++ vs}]}
-                            ]}}
-
-                        num_remaining > ea ->
-                          {ba, ea_args} = Enum.split(remaining_args, ea)
-                          base_call = {:call, 1, target, [dict_call] ++ ba}
-                          Enum.reduce(ea_args, base_call, fn a, acc -> {:call, 1, acc, [a]} end)
-                      end
-                    end
-
-                  [{:clause, 1, [dispatch_var], [[guard]], [accessor]}]
-                else
-                  []
-                end
-
-              _ ->
-                []
-            end)
-
-          if clauses != [] do
-            error_clause =
-              {:clause, 1, [dispatch_var], [],
-               [
-                 {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :error}},
-                  [
-                    {:tuple, 1,
-                     [
-                       {:atom, 1, :no_instance},
-                       {:atom, 1, String.to_atom(class_name)},
-                       dispatch_var
-                     ]}
-                  ]}
-               ]}
-
-            match_expr = {:match, 1, dispatch_var, dispatch_target}
-            case_expr = {:case, 1, dispatch_var, clauses ++ [error_clause]}
-
-            # Erlang requires blocks to return the final application
-            {:block, 1, [match_expr, case_expr]}
-          else
-            nil
-          end
-        end)
-      end
-
-    result ||
-      (
-        is_method = Map.has_key?(global_env.member_to_class, real_name)
-
-        if is_method do
-          accessor_call = generate_static_call(real_name, mod, 1, [], current_mod)
-          Enum.reduce(erl_args, accessor_call, fn arg, acc -> {:call, 1, acc, [arg]} end)
+            _ ->
+              {:atom, 1, :undefined_dict}
+          end)
         else
-          {_, scheme, _, _} = get_info(real_name, global_env)
-          {num_dicts, num_args} = if scheme, do: split_arity(scheme), else: {0, 0}
-          total_arity = num_dicts + num_args
-          # Assume NO DICT is provided externally! This means the call is fundamentally faulty
-          # if we compile it statically. We should throw or pass an atom?
-          # Actually, if we're here, we can generate a static call missing the dictionary.
-          generate_static_call(
-            base_name,
-            mod,
-            total_arity,
-            [{:atom, 1, :no_dict_resolved} | erl_args],
-            current_mod
-          )
+          []
         end
-      )
+
+      dict_call =
+        {:call, 1, {:remote, 1, {:atom, 1, dict_mod}, {:atom, 1, String.to_atom(dn)}},
+         derived_dict_args}
+
+      if is_method do
+        base_accessor =
+          if mod && mod != current_mod do
+            {:call, 1, {:remote, 1, {:atom, 1, mod}, {:atom, 1, String.to_atom(base_name)}},
+             [dict_call]}
+          else
+            {:call, 1, {:atom, 1, String.to_atom(base_name)}, [dict_call]}
+          end
+
+        case erl_args do
+          [] -> base_accessor
+          _ -> {:call, 1, base_accessor, erl_args}
+        end
+      else
+        {_, scheme, _, _} = get_info(real_name, global_env)
+        {_, ea} = if scheme, do: split_arity(scheme), else: {0, 0}
+
+        target =
+          if mod && mod != current_mod do
+            {:remote, 1, {:atom, 1, mod}, {:atom, 1, String.to_atom(base_name)}}
+          else
+            {:atom, 1, String.to_atom(base_name)}
+          end
+
+        generate_static_call(base_name, mod, ea + 1, [dict_call | erl_args], current_mod)
+      end
+    else
+      # No instance found — fallback
+      if is_method do
+        accessor_call = generate_static_call(real_name, mod, 1, [], current_mod)
+        Enum.reduce(erl_args, accessor_call, fn arg, acc -> {:call, 1, acc, [arg]} end)
+      else
+        {_, scheme, _, _} = get_info(real_name, global_env)
+        {num_dicts, num_args} = if scheme, do: split_arity(scheme), else: {0, 0}
+        total_arity = num_dicts + num_args
+
+        generate_static_call(
+          base_name,
+          mod,
+          total_arity,
+          [{:atom, 1, :no_dict_resolved} | erl_args],
+          current_mod
+        )
+      end
+    end
   end
 
   defp generate_static_call(name, mod, arity, args, current_mod) do
@@ -1315,14 +1272,8 @@ defmodule Phi.Codegen do
         {:call, 1, target, args}
 
       num < arity ->
-        missing = arity - num
-        vs = Enum.map(1..missing, fn i -> {:var, 1, String.to_atom("P#{i}")} end)
-        inner = {:call, 1, target, args ++ vs}
-        # Emit nested curried funs: fun(P1) -> fun(P2) -> call(args,P1,P2) end end
-        # This matches how dispatch applies args one at a time via Enum.reduce.
-        Enum.reduce(Enum.reverse(vs), inner, fn v, body ->
-          {:fun, 1, {:clauses, [{:clause, 1, [v], [], [body]}]}}
-        end)
+        vs = Enum.map(1..(arity - num), fn i -> {:var, 1, String.to_atom("P#{i}")} end)
+        {:fun, 1, {:clauses, [{:clause, 1, vs, [], [{:call, 1, target, args ++ vs}]}]}}
 
       num > arity ->
         {ba, ea} = Enum.split(args, arity)

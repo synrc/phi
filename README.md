@@ -13,7 +13,7 @@
 * Avoid Bullshit at All Costs.
 
 ```
-$ mix phi.test  2.75s user 1.36s system 101% cpu 4.067 total
+$ time mix phi.test  2.75s user 1.36s system 101% cpu 4.067 total
 ```
 
 ## Features

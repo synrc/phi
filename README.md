@@ -11,8 +11,10 @@
 * Speed over Simplicity.
 * Reliability and Predictivness over Featureness.
 * Avoid Bullshit at All Costs.
+* Back to Miranda Roots
 
 ```
+$ time mix phi.base  2.28s user 1.18s system 111% cpu 3.113 total
 $ time mix phi.test  2.75s user 1.36s system 101% cpu 4.067 total
 ```
 

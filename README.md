@@ -39,7 +39,7 @@ This language was created by non-human impersonated spirits of these guys:
 * Miranda Team (David Turner)
 * Haskell Team (Simon Peyton Jones)
 * PureScript Team (Phil Freeman)
-* Hamler Team (Feg Lee)
+* Hamler Team (Feng Lee)
 * ML/LCF Team (Robin Milner)
 * Prolog Team (Alain Colmerauer with Philippe Roussel)
 * Erlang Team (Joe Armstrong)

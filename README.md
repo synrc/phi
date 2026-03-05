@@ -6,6 +6,12 @@
 * **Phi** is a strongly-typed with compile-time type-checking and built-in support for concurrency and distribution.
 * **Phi** empowers SYNRC to build scalable, reliable, real-time applications, especially for 5G, IoT, and edge computing.
 
+## Fast
+
+```
+$ mix phi.test  2.75s user 1.36s system 101% cpu 4.067 total
+```
+
 ## Features
 
 - Functional programming

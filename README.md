@@ -7,10 +7,10 @@
 * **Phi** empowers SYNRC to build scalable, reliable, real-time applications, especially for 5G, IoT, and edge computing.
 
 ```
-mix phi.base              # Compile all Phi stdlib .phi files
-mix phi.compile           # Compile Phi (.phi) files to BEAM
-mix phi.repl              # Starts a Phi REPL
-mix phi.test              # Run Phi native QuickCheck tests
+mix phi.base              # Compile Base Library
+mix phi.compile           # Compile *.phi Files
+mix phi.repl              # Start Phi Shell
+mix phi.test              # Run Phi QuickCheck Tests
 ```
 
 ## Motivation
@@ -27,15 +27,16 @@ $ time mix phi.test  2.75s user 1.36s system 101% cpu 4.067 total
 
 ## Comments
 
-This meant to be learning excercise on how to implement HM language for Erlang/OTP naturally, but things got out of control eventually. Same excercise could and should be applied for Idris for Pi/Sigma capabilities for those who blatantly dislike glorious Coq's syntax. As for Miranda-like syntax for Erlang/OTP dependently typed prover I name Sigma project and for Coq-inspired architecture there is already project in Groupoid, Christine. The Christine synax should be compatible with Erlang/OTP implementation once it emerges.
+This meant to be learning excercise on how to implement simple educational HM language codenamed Phi (stands for Philosophy, author of PureScript Phil, and Fibonacci misspelling) for Erlang naturally, but things got out of control eventually. Same excercise could and should be applied for Idris for fibrational Pi and Sigma capabilities for those who blatantly dislike the syntax of glorious Coq. As for Miranda syntax for Erlang dependently typed prover I name Sigma project and for Coq inspired architecture there is already project in Groupoid, Christine.
 
-As for technical hints please take following:
+The Christine syntax could should be compatible with Erlang implementation once it emerges. As for technical hints please take the following heart advise:
 
-* Start with classical HM typechecker
-* Lear Erlang AST complitation by Henk or Per examples
+* Start with classical HM or MLTT typechecker
+* Learn Erlang AST complitation by Henk or Per examples
 * Don't use Erlang guards for anything as they slowdown compilation
-* Don't use Topological sort for anything
-* Pay Attention to Curring
+* Don't use Kahn's Topological sort for anything as we are runtime
+* In runtime always choose first Type Class instance
+* Pay Attention to Curring in code generation
 * Pay Attention to FFI
 * Pay Attention to Process modality
 

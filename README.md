@@ -22,7 +22,7 @@
 
 ## Credits
 
-Without these guys this language would be impossible:
+This language was created by impersonated spirits of these guys:
 
 * Miranda Team (David Turner)
 * Haskell Team (Simon Peyton Jones)

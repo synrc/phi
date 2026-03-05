@@ -24,14 +24,14 @@
 
 Without these guys this language would be impossible:
 
-* Miranda Team
-* Haskell Team
-* PureScript Team
-* Hamler Team
-* Robin Milner (ML)
-* Prolog Team
-* Erlang Team
-* Elixir Team
+* Miranda Team (David Turner)
+* Haskell Team (Simon Peyton Jones)
+* PureScript Team (Phil Freeman)
+* Hamler Team (Feg Lee)
+* ML/LCF Team (Robin Milner)
+* Prolog Team (Alain Colmerauer with Philippe Roussel)
+* Erlang Team (Joe Armstrong)
+* Elixir Team (José Valim)
 * Groupoid Team (Namdak Tonpa)
 
 ## License

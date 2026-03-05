@@ -86,7 +86,7 @@ Yet for systems requiring actor-based concurrency, supervision trees, hot code s
 \begin{itemize}
 \item PureScript targets JavaScript runtimes (Node/browser), lacking native BEAM integration which was fixed lately with Hamler but not finishd. We took our place in game.
 \item Haskell offers GHCJS, Fay or external FFI bridges, but loses BEAM's lightweight processes and OTP patterns,
-      Cloud Haskell library tries to mimic Erlang runtime but fails as Scala Akka in terms of performance and simplicity.
+      Cloud Haskell library tries to mimic Erlang runtime but fails as Scala Akka in terms of performance, simplicity, and feature completeness.
 \end{itemize}
 
 A reimplementation in Elixir (like Phi) preserves PureScript-like syntax and HM typing while compiling directly to BEAM bytecode, unlocking Erlang's concurrency primitives natively.

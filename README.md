@@ -7,7 +7,6 @@
 * **Phi** empowers SYNRC to build scalable, reliable, real-time applications, especially for 5G, IoT, and edge computing.
 
 ```
-mix phi                   # Compiles a Phi source file to a BEAM binary
 mix phi.base              # Compile all Phi stdlib .phi files
 mix phi.compile           # Compile Phi (.phi) files to BEAM
 mix phi.repl              # Starts a Phi REPL

@@ -34,10 +34,6 @@ Without these guys this language would be impossible:
 * Elixir Team
 * Groupoid Team (Namdak Tonpa)
 
-## Author
-
-* Ihor Horobets
-
 ## License
 
 DHARMA LICENSE

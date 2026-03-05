@@ -84,8 +84,9 @@ PureScript and Haskell both build on Hindley-Milner (HM) inference for strong st
 Yet for systems requiring actor-based concurrency, supervision trees, hot code swapping, and seamless distribution across nodes — hallmarks of Erlang/OTP and BEAM — neither is optimal out of the box:
 
 \begin{itemize}
-\item PureScript targets JavaScript runtimes (Node/browser), lacking native BEAM integration.
-\item Haskell offers GHCJS or external FFI bridges, but loses BEAM's lightweight processes and OTP patterns.
+\item PureScript targets JavaScript runtimes (Node/browser), lacking native BEAM integration which was fixed lately with Hamler but not finishd. We took our place in game.
+\item Haskell offers GHCJS, Fay or external FFI bridges, but loses BEAM's lightweight processes and OTP patterns,
+      Cloud Haskell library tries to mimic Erlang runtime but fails as Scala Akka in terms of performance and simplicity.
 \end{itemize}
 
 A reimplementation in Elixir (like Phi) preserves PureScript-like syntax and HM typing while compiling directly to BEAM bytecode, unlocking Erlang's concurrency primitives natively.

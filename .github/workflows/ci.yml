@@ -12,8 +12,6 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        # elixir: ['1.16', '1.17', '1.18', '1.19']
-        # otp: ['26', '27', '28', '29']
         elixir: ['1.16']
         otp: ['26']
     steps:
@@ -48,11 +46,11 @@ jobs:
       - name: Run mix test
         run: mix test
 
-      - name: Run compile_stdlib
-        run: mix compile_stdlib
+      - name: Run phi.base
+        run: mix phi.base
 
       - name: Run compile_all.exs
         run: mix run compile_all.exs
 
-      # - name: Run phi.test
-      #   run: mix phi.test
+      - name: Run phi.test
+        run: mix phi.test

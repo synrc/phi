@@ -18,7 +18,7 @@ $ time mix phi.test  2.75s user 1.36s system 101% cpu 4.067 total
 
 ## Comments
 
-This used to be learning excercise on how to implement HM language for Erlang/OTP naturall, but things got out of control.
+This meant to be learning excercise on how to implement HM language for Erlang/OTP naturally, but things got out of control eventually.
 
 ## Features
 

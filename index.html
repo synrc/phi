@@ -21,8 +21,8 @@
     <header>
         <div class="hero-content">
             <h1>Phi</h1>
-            <p class="hero-subtitle">Algebraic pure functional language Phi,
-            implementing PureScript syntax and sematics, written in Elixir for Erlang/OTP concurrency model
+            <p class="hero-subtitle">Algebraic pure functional language <b>Phi</b>,
+            implementing <b>PureScript</b> and <b>Hamler</b> syntax and sematics, written in <b>Elixir</b> for <b>Erlang/OTP</b> concurrency model
             and its Open Telecom Platform framework.
              <!--Алгебраїчна чиста функціональна мова програмування Phi, яка реалізує синтаксис і семантику PureScript,
                                      написана на Elixir для телекомунікаційної платформи Erlang/OTP.--></p>
@@ -59,7 +59,7 @@ main = do
         </section>
 
         <section>
-            <h2>Get Started</h2>
+            <h2>Announcement</h2>
             <div style="max-width:720px;margin:0 auto;">
                 <pre class="code-snippet">
 $ mix deps.get
@@ -85,7 +85,29 @@ Library loaded. Ready.
   %{name: :kernel, vsn: ~C"10.3.2"', desc: ~C"ERTS CXC 138 10"}
 ]
 </pre>
-                <p><strong>More news will come soon.</strong></p>
+
+<p>This meant to be learning excercise on how to implement simple educational HM language
+   codenamed <b>Phi</b> (stands for Philosophy, author of PureScript Phil, and Fibonacchi spelling)
+   for Erlang/OTP naturally, but things got out of control eventually.
+   Same excercise could and should be applied for Idris for Pi/Sigma capabilities for
+   those who blatantly dislike glorious Coq's syntax. As for Miranda-like syntax for
+   Erlang/OTP dependently typed prover I name <b>Sigma</b> project and for Coq-inspired
+   architecture there is already project in Groupoid, <b>Christine</b>.</p>
+
+ <p>The <b>Christine</b> synax could should be compatible with Erlang/OTP implementation once it emerges.
+As for technical hints please take following:<pr>
+
+<p>
+• Start with classical HM or MLTT typechecker<br>
+• Learn Erlang AST complitation by <b>Henk</b> or <b>Per</b> examples<br>
+• Don't use <b>Erlang</b> guards for anything as they slowdown compilation<br>
+• Don't use Kahn's Topological sort for anything as we are runtime<br>
+• In runtime always choose first Type Class instance<br>
+• Pay Attention to Curring in code generation<br>
+• Pay Attention to FFI<br>
+• Pay Attention to Process modality<br>
+</p>
+
             </div>
         </section>
     </main>
@@ -94,7 +116,7 @@ Library loaded. Ready.
         <div class="footer-columns">
             <div>
                 <h4>Phi</h4>
-                <p>Native PureScript for Erlang VM</p>
+                <p>PureScript written in Elixir for Erlang/OTP</p>
             </div>
             <div>
                 <h4>Resources</h4>

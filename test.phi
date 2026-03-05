@@ -1,9 +1,0 @@
-module Test where
-
-quickCheck s m n = check s 100 m n
-check s 0 m n = (printf "%s" (concat $ replicate (n/5) basePipe) s :: IO ()) >>= \_ -> pure Successed
-
-tcount (a,b,c,d) [x|xs] = case x of
-                         Successed  -> tcount (a+1 ,b   ,c   , d+1) xs
-                         Failed _ _ -> tcount (a   ,b+1 ,c   , d+1) xs
-                         Crash _ _  -> tcount (a   ,b+1 ,c+1 , d+1) xs

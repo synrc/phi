@@ -1,9 +1,9 @@
 defmodule Mix.Tasks.Phi.Compile do
   use Mix.Task
 
-  @shortdoc "Compile Phi (.hm) files to BEAM"
+  @shortdoc "Compile Phi (.phi) files to BEAM"
   @moduledoc """
-  Compiles one or more Phi (.hm) source files (and their dependencies) to BEAM
+  Compiles one or more Phi (.phi) source files (and their dependencies) to BEAM
   bytecode that can be executed directly by the Erlang runtime.
 
   Usage:

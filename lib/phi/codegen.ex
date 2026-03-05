@@ -263,51 +263,6 @@ defmodule Phi.Codegen do
     nil
   end
 
-  defp get_dispatch_index(scheme) do
-    do_get_dispatch_index(scheme) || 0
-  end
-
-  defp do_get_dispatch_index(%Type.Forall{type: t}), do: do_get_dispatch_index(t)
-
-  defp do_get_dispatch_index(%Type.TConstrained{args: args, type: t}) do
-    var_name =
-      case args do
-        [%Type.TVar{id: v} | _] -> v
-        _ -> nil
-      end
-
-    if var_name, do: find_var_index_in_spine(t, var_name, 0), else: 0
-  end
-
-  defp do_get_dispatch_index(_), do: 0
-
-  defp find_var_index_in_spine(
-         %Type.TApp{func: %Type.TApp{func: %Type.TCon{name: "->"}, arg: arg_t}, arg: ret_t},
-         var_name,
-         idx
-       ) do
-    if contains_var?(arg_t, var_name) do
-      idx
-    else
-      find_var_index_in_spine(ret_t, var_name, idx + 1)
-    end
-  end
-
-  defp find_var_index_in_spine(%Type.Forall{type: t}, var_name, idx),
-    do: find_var_index_in_spine(t, var_name, idx)
-
-  defp find_var_index_in_spine(%Type.TConstrained{type: t}, var_name, idx),
-    do: find_var_index_in_spine(t, var_name, idx)
-
-  defp find_var_index_in_spine(_, _, _), do: nil
-
-  defp contains_var?(%Type.TVar{id: v}, var_name), do: v == var_name
-
-  defp contains_var?(%Type.TApp{func: f, arg: a}, var_name),
-    do: contains_var?(f, var_name) or contains_var?(a, var_name)
-
-  defp contains_var?(_, _), do: false
-
   defp get_dict_names(scheme) do
     do_get_dict_names(scheme, [])
   end
@@ -1073,10 +1028,6 @@ defmodule Phi.Codegen do
     Enum.find(env, &String.starts_with?(&1, prefix))
   end
 
-  defp type_outer_name(%Phi.Type.TApp{func: f}), do: type_outer_name(f)
-  defp type_outer_name(%Phi.Type.TCon{name: n}), do: n
-  defp type_outer_name(_), do: nil
-
   # Map known Phi operators to native Erlang ops when they resolve to typeclass methods.
   # This avoids generating dispatch case expressions for primitive ops, preventing
   # exponential Erlang compiler blowup (e.g., Data.Read.phi's splitTop with many == and ||).
@@ -1126,51 +1077,6 @@ defmodule Phi.Codegen do
       Map.get(@native_ops, base)
     else
       nil
-    end
-  end
-
-  defp erlang_type_guard(type, arg_var) do
-    case type_outer_name(type) do
-      "Fun" ->
-        {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :is_function}}, [arg_var]}
-
-      "->" ->
-        {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :is_function}}, [arg_var]}
-
-      "List" ->
-        {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :is_list}}, [arg_var]}
-
-      "String" ->
-        {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :is_list}}, [arg_var]}
-
-      "Integer" ->
-        {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :is_integer}}, [arg_var]}
-
-      "Float" ->
-        {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :is_float}}, [arg_var]}
-
-      "Boolean" ->
-        {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :is_boolean}}, [arg_var]}
-
-      "Atom" ->
-        {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :is_atom}}, [arg_var]}
-
-      "Binary" ->
-        {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :is_binary}}, [arg_var]}
-
-      "Char" ->
-        {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :is_integer}}, [arg_var]}
-
-      "IO" ->
-        {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :is_function}},
-         [arg_var, {:integer, 1, 0}]}
-
-      ctor_name ->
-        {:op, 1, :andalso,
-         {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :is_tuple}}, [arg_var]},
-         {:op, 1, :"=:=",
-          {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :element}},
-           [{:integer, 1, 1}, arg_var]}, {:atom, 1, String.to_atom(ctor_name)}}}
     end
   end
 
@@ -1226,13 +1132,6 @@ defmodule Phi.Codegen do
       else
         {_, scheme, _, _} = get_info(real_name, global_env)
         {_, ea} = if scheme, do: split_arity(scheme), else: {0, 0}
-
-        target =
-          if mod && mod != current_mod do
-            {:remote, 1, {:atom, 1, mod}, {:atom, 1, String.to_atom(base_name)}}
-          else
-            {:atom, 1, String.to_atom(base_name)}
-          end
 
         generate_static_call(base_name, mod, ea + 1, [dict_call | erl_args], current_mod)
       end

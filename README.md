@@ -8,14 +8,16 @@
 
 ## Features
 
+- Compilation of Base Library in 5 seconds
 - Functional programming
-- Haskell and ML style
+- PureScript style
 - Compile-time type Checking/Inference
 - Algebraic data type (ADT)
 - Functions, higher-order functions
 - Currying and partial application
 - Pattern matching, and Guards
 - List comprehension
+- Featured Absence of HKT
 - Applicative and Monad
 - Advanced module system
 - Built-in concurrency

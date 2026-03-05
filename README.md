@@ -18,7 +18,17 @@ $ time mix phi.test  2.75s user 1.36s system 101% cpu 4.067 total
 
 ## Comments
 
-This meant to be learning excercise on how to implement HM language for Erlang/OTP naturally, but things got out of control eventually.
+This meant to be learning excercise on how to implement HM language for Erlang/OTP naturally, but things got out of control eventually. Same excercise could and should be applied for Idris for Pi/Sigma capabilities for those who blatantly dislike glorious Coq's syntax. As for Miranda-like syntax for Erlang/OTP dependently typed prover I name Sigma project and for Coq-inspired architecture there is already project in Groupoid, Christine. The Christine synax should be compatible with Erlang/OTP implementation once it emerges.
+
+As for technical hints please take following:
+
+* Start with classical HM typechecker
+* Lear Erlang AST complitation by Henk or Per examples
+* Don't use Erlang guards for anything as they slowdown compilation
+* Don't use Topological sort for anything
+* Pay Attention to Curring
+* Pay Attention to FFI
+* Pay Attention to Process modality
 
 ## Features
 

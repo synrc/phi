@@ -6,6 +6,14 @@
 * **Phi** is a strongly-typed with compile-time type-checking and built-in support for concurrency and distribution.
 * **Phi** empowers SYNRC to build scalable, reliable, real-time applications, especially for 5G, IoT, and edge computing.
 
+```
+mix phi                   # Compiles a Phi source file to a BEAM binary
+mix phi.base              # Compile all Phi stdlib .phi files
+mix phi.compile           # Compile Phi (.hm) files to BEAM
+mix phi.repl              # Starts a Phi REPL
+mix phi.test              # Run Phi native QuickCheck tests
+```
+
 ## Motivation
 
 * Speed over Simplicity.
